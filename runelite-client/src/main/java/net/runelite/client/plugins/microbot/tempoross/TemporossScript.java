@@ -855,7 +855,7 @@ public class TemporossScript extends Script {
                 WorldPoint mastLocation = damagedMast.getWorldLocation();
                 
                 // Check for lightning shadow at the mast location using existing inCloud method
-                if (inCloud(mastLocation, 0)) {
+                if (inCloud(mastLocation, 2)) {
                     log("Lightning shadow detected near mast - waiting for it to become fire");
                     
                     // Wait for lightning shadow to transform into fire NPC (up to 5 seconds)
