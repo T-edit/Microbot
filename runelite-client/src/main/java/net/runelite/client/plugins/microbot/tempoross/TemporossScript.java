@@ -782,7 +782,7 @@ public class TemporossScript extends Script {
             // Special handling for INITIAL_FILL and EMERGENCY_FILL states - don't skip fires even when filling
             // This fixes the issue where the bot dodges fire but then runs through it
             if (isFilling && state != State.INITIAL_FILL && state != State.EMERGENCY_FILL) {
-                Microbot.log("Filling (not in INITIAL_FILL or EMERGENCY_FILL), skipping fire");
+                log("Filling (not in INITIAL_FILL or EMERGENCY_FILL), skipping fire");
                 return;
             }
             
@@ -1311,7 +1311,7 @@ public class TemporossScript extends Script {
                         Rs2Walker.walkNextToInstance(cloud);
                         waitForWalkingWithWaveCheck(3000);
                         if (inCloud(Microbot.getClient().getLocalPlayer().getWorldLocation(), 1)) {
-                            Microbot.log("Current spot is clouded, looking for a better fishing spot...");
+                            log("Current spot is clouded, looking for a better fishing spot...");
 
                             var playerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
 
@@ -1323,12 +1323,12 @@ public class TemporossScript extends Script {
                             if (safeFishSpot != null) {
                                 Rs2Camera.turnTo(safeFishSpot);
                                 Rs2Npc.interact(safeFishSpot, "Harpoon");
-                                Microbot.log("Moved to a " +
+                                log("Moved to a " +
                                         (safeFishSpot.getId() == NpcID.TEMPOROSS_HARPOONFISH_FISHINGSPOT_SPECIAL ? "double" : "single") +
                                         " fish spot.");
                                 waitForWalkingWithWaveCheck(2000);
                             } else {
-                                Microbot.log("No safe fishing spots found. Waiting...");
+                                log("No safe fishing spots found. Waiting...");
                             }
                             return;
                         }

@@ -517,26 +517,16 @@ public class TemporossPlugin extends Plugin {
             }
             
             // Track game completions
-            if (message.contains("Reward permits:") || message.contains("The Spirit of Tempoross was too strong"))
+            if (message.contains("Reward permits:"))
             {
                 // We already count games when entering the area, so don't increment totalGames here
                 
                 // Track wins
-                if (message.contains("Reward permits:"))
-                {
-                    wins++;
-                    // Mark that player just won a game (to avoid counting as loss when exiting)
-                    justWon = true;
-                    
-                    Microbot.log("Tempoross defeated! Total wins: " + wins);
-                }
-                // Note: We don't need to track losses here as they're already tracked when exiting the minigame area
-                else if (message.contains("The Spirit of Tempoross was too strong"))
-                {
-                    // This message is received when the game is lost, but losses are already tracked in onGameTick
-                    Microbot.log("Tempoross game lost message received");
-                }
+                wins++;
+                // Mark that player just won a game (to avoid counting as loss when exiting)
+                justWon = true;
                 
+                Microbot.log("Tempoross defeated! Total wins: " + wins);
                 Microbot.log("Total games played: " + totalGames);
             }
         }
