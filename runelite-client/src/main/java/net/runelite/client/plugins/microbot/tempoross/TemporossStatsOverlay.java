@@ -63,6 +63,7 @@ public class TemporossStatsOverlay extends OverlayPanel {
 
     @Override
     public Dimension render(Graphics2D graphics) {
+        panelComponent.getChildren().clear();
         // Set up the panel's visual properties
         panelComponent.setPreferredSize(new Dimension(180, 180));
         panelComponent.setBackgroundColor(new Color(173, 216, 230, 40));

@@ -763,10 +763,20 @@ public class TemporossScript extends Script {
         }
         
         // Skip fire handling if both energy and essence are low (solo mode only)
+        // BUT override this skip if player is within 5 tiles of any fire
         if (temporossConfig.solo() && ENERGY <= 10 && ESSENCE <= 35) {
-            log("Solo mode: Both energy (" + ENERGY + "%) and essence (" + ESSENCE + "%) are low, skipping fire handling");
-            isFightingFire = false;
-            return;
+            // Check if player is within 5 tiles of any fire - override skip condition if true
+            WorldPoint playerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
+            boolean nearbyFire = !sortedFires.isEmpty() && sortedFires.stream().anyMatch(fire -> 
+                playerLocation.distanceTo(fire.getWorldLocation()) <= 5);
+            
+            if (nearbyFire) {
+                log("Solo mode: Energy (" + ENERGY + "%) and essence (" + ESSENCE + "%) are low, but fire within 5 tiles detected - forcing fire handling");
+            } else {
+                log("Solo mode: Both energy (" + ENERGY + "%) and essence (" + ESSENCE + "%) are low, skipping fire handling");
+                isFightingFire = false;
+                return;
+            }
         }
         isFightingFire = true;
         
@@ -1744,9 +1754,19 @@ public class TemporossScript extends Script {
     // method to fight fires that is in a path to a location
     public boolean fightFiresInPath(WorldPoint location) {
         // Skip fire handling if both energy and essence are low (solo mode only)
+        // BUT override this skip if player is within 5 tiles of any fire
         if (temporossConfig.solo() && ENERGY <= 10 && ESSENCE <= 35) {
-            log("Solo mode: Both energy (" + ENERGY + "%) and essence (" + ESSENCE + "%) are low, skipping fire handling in path");
-            return true; // Return true to allow walking to continue
+            // Check if player is within 5 tiles of any fire - override skip condition if true
+            WorldPoint playerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
+            boolean nearbyFire = !sortedFires.isEmpty() && sortedFires.stream().anyMatch(fire -> 
+                playerLocation.distanceTo(fire.getWorldLocation()) <= 5);
+            
+            if (nearbyFire) {
+                log("Solo mode: Energy (" + ENERGY + "%) and essence (" + ESSENCE + "%) are low, but fire within 5 tiles detected - forcing fire handling");
+            } else {
+                log("Solo mode: Both energy (" + ENERGY + "%) and essence (" + ESSENCE + "%) are low, skipping fire handling in path");
+                return true; // Return true to allow walking to continue
+            }
         }
         
         Rs2WorldPoint playerLocation = new Rs2WorldPoint(Microbot.getClient().getLocalPlayer().getWorldLocation());

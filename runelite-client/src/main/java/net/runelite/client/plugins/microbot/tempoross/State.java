@@ -14,7 +14,7 @@ public enum State {
     THIRD_CATCH(() -> {
         // Original logic - only catch 19 fish if ESSENCE is > 31
         // This is the intended behavior as per requirements
-        return getAllFish() >= ((isSolo() && TemporossScript.ESSENCE <= 26) ? getTotalAvailableFishSlots() : (isSolo() && TemporossScript.ESSENCE > 26) ? 19 : getTotalAvailableFishSlots()) || (isSolo() && TemporossScript.INTENSITY >= 91);
+        return getAllFish() >= ((isSolo() && TemporossScript.ESSENCE <= 26) ? getTotalAvailableFishSlots() : (isSolo() && TemporossScript.ESSENCE > 26) ? 19 : getTotalAvailableFishSlots()) || (isSolo() && TemporossScript.INTENSITY >= 92);
     }, (isSolo() && TemporossScript.INTENSITY >= 92) ? SECOND_FILL : THIRD_COOK),
     // In solo mode with energy state active, this only checks if raw fish count meets the exact energy-based target
     // rather than checking all fish in inventory. This ensures optimal fish collection based on Tempoross energy.
@@ -60,7 +60,7 @@ public enum State {
      * Gets the next state to transition to.
      */
     public State getNext() {
-        // Special case for THIRD_CATCH to dynamically check intensity for solo mode
+        // Dynamic override for THIRD_CATCH in solo mode
         if (this == THIRD_CATCH && isSolo() && TemporossScript.INTENSITY >= 92) {
             Microbot.log("THIRD_CATCH transitioning to SECOND_FILL due to high intensity: " + TemporossScript.INTENSITY + "%");
             return SECOND_FILL;

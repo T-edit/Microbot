@@ -110,8 +110,8 @@ public class TemporossProgressionOverlay extends OverlayPanel {
     private double calculateProgression(State state) {
         switch (state) {
             case ATTACK_TEMPOROSS:
-                // Progression based on energy level, capped at 94 (target).
-                return Math.min(TemporossScript.ENERGY / 94.0, 1.0);
+                // Progression based on energy level, capped at 98 (target).
+                return Math.min(TemporossScript.ENERGY / 98.0, 1.0);
 
             case SECOND_FILL:
                 // Progression goes up as cooked fish decreases (0 fish = 100% progress).
@@ -121,7 +121,7 @@ public class TemporossProgressionOverlay extends OverlayPanel {
             case INITIAL_FILL:
                 // Progression goes up as cooked fish decreases (0 fish = 100% progress).
                 int cookedFishInitialFill = State.getCookedFish();
-                return 1.0 - Math.min((double) cookedFishInitialFill / (TemporossScript.temporossConfig.solo() ? 17 : getTotalAvailableFishSlots()), 1.0);
+                return 1.0 - Math.min((double) cookedFishInitialFill / (TemporossScript.temporossConfig.solo() ? 16 : getTotalAvailableFishSlots()), 1.0);
 
             case THIRD_COOK:
                 // Progression based on cooked fish count or intensity threshold.
@@ -139,14 +139,14 @@ public class TemporossProgressionOverlay extends OverlayPanel {
                 return allFishEmergencyFill == 0 ? 1.0 : 0.0;
 
             case SECOND_COOK:
-                // Progression based on cooked fish count reaching 17.
+                // Progression based on cooked fish count reaching 16.
                 int cookedFishSecondCook = State.getCookedFish();
-                return Math.min((double) cookedFishSecondCook / (TemporossScript.temporossConfig.solo() ? 17 : getAllFish()), 1.0);
+                return Math.min((double) cookedFishSecondCook / (TemporossScript.temporossConfig.solo() ? 16 : getAllFish()), 1.0);
 
             case SECOND_CATCH:
-                // Progression based on total fish count, target is 17.
+                // Progression based on total fish count, target is 16.
                 int allFishSecondCatch = getAllFish();
-                return Math.min((double) allFishSecondCatch / (TemporossScript.temporossConfig.solo() ? 17 : getTotalAvailableFishSlots()), 1.0);
+                return Math.min((double) allFishSecondCatch / (TemporossScript.temporossConfig.solo() ? 16 : getTotalAvailableFishSlots()), 1.0);
 
             case INITIAL_COOK:
                 // Progression reaches 100% when raw fish count is zero.
@@ -155,19 +155,17 @@ public class TemporossProgressionOverlay extends OverlayPanel {
                 return Math.min((double) cookedFishInitialCook / allFishInitialCook, 1.0);
 
             case INITIAL_CATCH:
-                // Progression based on raw fish count or total fish count; targets are 7 or 10.
+                // Progression based on raw fish count or total fish count; targets are 8 or 10.
                 int rawFishInitialCatch = State.getRawFish();
                 int allFishInitialCatch = getAllFish();
                 return Math.max(
-                        Math.min((double) rawFishInitialCatch / 7.0, 1.0),
+                        Math.min((double) rawFishInitialCatch / 8.0, 1.0),
                         Math.min((double) allFishInitialCatch / 10.0, 1.0)
                 );
                 
             case EMERGENCY_CATCH:
-                // Progression based on raw fish count reaching the target determined by energy level
-                int rawFishEmergencyCatch = State.getRawFish();
-                int targetFish = EnergyStateManager.getTargetFishCount();
-                return Math.min((double) rawFishEmergencyCatch / targetFish, 1.0);
+                // Progression reaches 100% when target fish count is reached
+                return EnergyStateManager.hasReachedTargetFishCount() ? 1.0 : 0.0;
 
             default:
                 return 0.0;
