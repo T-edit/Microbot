@@ -45,7 +45,7 @@ public class TemporossPlugin extends Plugin {
 
     @Inject
     private TemporossProgressionOverlay temporossProgressionOverlay;
-    
+
     @Inject
     private TemporossStatsOverlay temporossStatsOverlay;
 
@@ -60,7 +60,7 @@ public class TemporossPlugin extends Plugin {
 
     @Inject
     private Client client;
-    
+
     @Inject
     private ClientThread clientThread;
 
@@ -72,7 +72,7 @@ public class TemporossPlugin extends Plugin {
     public static long lastWaveHitTime = 0;
     public static State previousState = null;
     public static boolean wasHitByWave = false;
-    
+
     // Wave recovery grace period to prevent emergency state transitions immediately after wave recovery
     public static long waveRecoveryTime = 0;
     public static final long WAVE_RECOVERY_GRACE_PERIOD_MS = 3000; // 3 seconds grace period
@@ -86,77 +86,77 @@ public class TemporossPlugin extends Plugin {
     private int sessionRewardPermits = 0;
     private boolean isFirstPermitVarbitChange = true; // Flag to detect first varbit change after login/startup
     private int sessionBaselinePermits = 0; // Preserve baseline for session calculations during login sequences
-    
+
     // Plugin startup tracking - to distinguish between initial enable vs restart
     private static boolean isFirstStartup = true;
-    
+
     // Fishing XP tracking
     private int startingFishingXp = 0;
     private int currentFishingXp = 0;
     private int sessionFishingXp = 0;
     private long sessionStartTime = 0;
-    
+
     // Track if player is currently in a game
     private boolean inGame = false;
     // Track if player just won a game (to avoid counting as loss when exiting)
     private boolean justWon = false;
-    
+
     // Getters for game statistics
     public int getTotalGames() {
         return totalGames;
     }
-    
+
     public int getWins() {
         return wins;
     }
-    
+
     public int getLosses() {
         return losses;
     }
-    
+
     public int getTotalRewardPermits() {
         return totalRewardPermits;
     }
-    
+
     public int getSessionRewardPermits() {
         return sessionRewardPermits;
     }
-    
+
     // Fishing XP getters
     public int getSessionFishingXp() {
         return sessionFishingXp;
     }
-    
+
     public int getFishingXpPerHour() {
         if (sessionStartTime == 0) {
             return 0;
         }
-        
+
         long timeElapsed = System.currentTimeMillis() - sessionStartTime;
         // Avoid division by zero
         if (timeElapsed == 0) {
             return 0;
         }
-        
+
         // Calculate XP per hour
         return (int) (sessionFishingXp * 3600000.0 / timeElapsed);
     }
-    
+
     public int getRewardPermitsPerHour() {
         if (sessionStartTime == 0) {
             return 0;
         }
-        
+
         long timeElapsed = System.currentTimeMillis() - sessionStartTime;
         // Avoid division by zero
         if (timeElapsed == 0) {
             return 0;
         }
-        
+
         // Calculate reward permits per hour
         return (int) (sessionRewardPermits * 3600000.0 / timeElapsed);
     }
-    
+
     // Get session runtime in milliseconds
     public long getSessionRuntime() {
         if (sessionStartTime == 0) {
@@ -164,21 +164,21 @@ public class TemporossPlugin extends Plugin {
         }
         return System.currentTimeMillis() - sessionStartTime;
     }
-    
+
     // Reset all statistics
     public void resetAllStatistics() {
         // Reset session counters
         sessionRewardPermits = 0;
         sessionFishingXp = 0;
-        
+
         // Reset cumulative game statistics
         totalGames = 0;
         wins = 0;
         losses = 0;
-        
+
         // Set first permit varbit change flag to handle proper initialization on next varbit event
         isFirstPermitVarbitChange = true;
-        
+
         // Initialize tracking variables using client thread
         clientThread.invoke(() -> {
             // Get the current permit count from the varbit
@@ -186,20 +186,20 @@ public class TemporossPlugin extends Plugin {
             previousTotalRewardPermits = currentPermits;
             totalRewardPermits = currentPermits;
             sessionBaselinePermits = currentPermits; // Set baseline for session calculations
-            
+
             startingFishingXp = client.getSkillExperience(Skill.FISHING);
             currentFishingXp = startingFishingXp;
-            
+
             Microbot.log("All statistics reset. Current permits: " + totalRewardPermits + ", baseline: " + sessionBaselinePermits + ", isFirstPermitVarbitChange set to true");
         });
-        
+
         sessionStartTime = System.currentTimeMillis();
-        
+
         // Reset game state flags
         inGame = false;
         justWon = false;
     }
-    
+
     @Subscribe
     public void onGameStateChanged(GameStateChanged event) {
         if (event.getGameState() == GameState.LOGGED_IN) {
@@ -213,7 +213,7 @@ public class TemporossPlugin extends Plugin {
             }
         }
     }
-    
+
     @Subscribe
     public void onStatChanged(StatChanged statChanged) {
         if (statChanged.getSkill() == Skill.FISHING) {
@@ -257,18 +257,20 @@ public class TemporossPlugin extends Plugin {
                 sessionStartTime = System.currentTimeMillis();
             }
         }
-        
+
         if (overlayManager != null) {
             toggleOverlay(config.enableOverlay());
             toggleProgressionOverlay(config.showProgressionOverlay());
             toggleStatsOverlay(config.showStatsOverlay());
         }
+        EnergyStateManager.init(clientThread);
         temporossScript.run(config);
     }
 
     @Override
     protected void shutDown() throws Exception {
         super.shutDown();
+        EnergyStateManager.shutdown();
         // Reset all statistics when plugin is disabled
         resetAllStatistics();
         temporossScript.shutdown();
@@ -296,7 +298,7 @@ public class TemporossPlugin extends Plugin {
     {
         // Check if player has entered or exited the minigame area
         boolean currentlyInMinigame = TemporossScript.isInMinigame();
-        
+
         // Player entered the minigame area
         if (currentlyInMinigame && !inGame) {
             inGame = true;
@@ -313,7 +315,7 @@ public class TemporossPlugin extends Plugin {
             inGame = false;
             justWon = false;
         }
-        
+
         if(!currentlyInMinigame)
             return;
         if(TemporossScript.workArea == null)
@@ -349,7 +351,7 @@ public class TemporossPlugin extends Plugin {
                     lastWaveHitTime = 0;
                     incomingWave = false; // Reset incomingWave flag to ensure script continues execution
                     previousState = null;
-                    
+
                     // Set wave recovery grace period to prevent immediate emergency state transitions
                     waveRecoveryTime = System.currentTimeMillis();
                     Microbot.log("Wave recovery grace period activated for " + (WAVE_RECOVERY_GRACE_PERIOD_MS/1000) + " seconds");
@@ -372,7 +374,7 @@ public class TemporossPlugin extends Plugin {
                     // Set wave recovery grace period to prevent immediate emergency state transitions
                     waveRecoveryTime = System.currentTimeMillis();
                     Microbot.log("Wave recovery grace period activated for " + (WAVE_RECOVERY_GRACE_PERIOD_MS/1000) + " seconds (default state)");
-                    
+
                     // Reset all state-specific flags to ensure the bot doesn't get stuck
                     TemporossScript.isFilling = false;
                     TemporossScript.isFightingFire = false;
@@ -412,13 +414,13 @@ public class TemporossPlugin extends Plugin {
         else if (event.getVarbitId() == TEMPOROSS_REWARDPERMITS)
         {
             int currentPermits = event.getValue();
-            
+
             // Always log the varbit change for debugging
-            Microbot.log("PERMIT VARBIT CHANGED: previousTotal=" + previousTotalRewardPermits + 
-                         ", currentTotal=" + currentPermits + 
-                         ", storedTotal=" + totalRewardPermits + 
+            Microbot.log("PERMIT VARBIT CHANGED: previousTotal=" + previousTotalRewardPermits +
+                         ", currentTotal=" + currentPermits +
+                         ", storedTotal=" + totalRewardPermits +
                          ", isFirst=" + isFirstPermitVarbitChange);
-            
+
             // If this is the first varbit change (login/startup), initialize tracking variables
             if (isFirstPermitVarbitChange) {
                 // Initialize with current permits, but also check if we should count this as a gain
@@ -441,7 +443,7 @@ public class TemporossPlugin extends Plugin {
                 isFirstPermitVarbitChange = false;
                 return;
             }
-            
+
             // If total permits changed, update tracking variables
             if (currentPermits != totalRewardPermits) {
                 // If permits increased, update session permits
@@ -466,7 +468,7 @@ public class TemporossPlugin extends Plugin {
                     // Log when permits decrease (this shouldn't normally happen)
                     Microbot.log("WARNING: Permit count decreased from " + previousTotalRewardPermits + " to " + currentPermits);
                 }
-                
+
                 // Always update the tracking variables regardless of whether permits increased or decreased
                 previousTotalRewardPermits = currentPermits;
                 totalRewardPermits = currentPermits;
@@ -497,7 +499,7 @@ public class TemporossPlugin extends Plugin {
             {
                 incomingWave = false;
                 Microbot.log("Wave passed");
-                
+
                 // If hit by wave, save current time and state for recovery
                 if (message.contains("the wave slams into you")) {
                     lastWaveHitTime = System.currentTimeMillis();
@@ -515,17 +517,15 @@ public class TemporossPlugin extends Plugin {
                 fireClouds++;
                 Microbot.log("Clouds " + fireClouds);
             }
-            
+
             // Track game completions
             if (message.contains("Reward permits:"))
             {
-                // We already count games when entering the area, so don't increment totalGames here
-                
                 // Track wins
                 wins++;
                 // Mark that player just won a game (to avoid counting as loss when exiting)
                 justWon = true;
-                
+
                 Microbot.log("Tempoross defeated! Total wins: " + wins);
                 Microbot.log("Total games played: " + totalGames);
             }
@@ -541,7 +541,7 @@ public class TemporossPlugin extends Plugin {
     public static void setRope(boolean rope) {
         Microbot.getConfigManager().setConfiguration("microbot-tempoross", "rope", rope);
     }
-    
+
     // Toggle overlay visibility
     public void toggleOverlay(boolean show) {
         if (show) {
@@ -550,7 +550,7 @@ public class TemporossPlugin extends Plugin {
             overlayManager.remove(temporossOverlay);
         }
     }
-    
+
     // Toggle progression overlay visibility
     public void toggleProgressionOverlay(boolean show) {
         if (show) {
@@ -559,7 +559,7 @@ public class TemporossPlugin extends Plugin {
             overlayManager.remove(temporossProgressionOverlay);
         }
     }
-    
+
     // Toggle stats overlay visibility
     public void toggleStatsOverlay(boolean show) {
         if (show) {
@@ -568,7 +568,7 @@ public class TemporossPlugin extends Plugin {
             overlayManager.remove(temporossStatsOverlay);
         }
     }
-    
+
     @Subscribe
     public void onConfigChanged(ConfigChanged event) {
         if (event.getGroup().equals("microbot-tempoross")) {
