@@ -15,10 +15,19 @@ import net.runelite.client.plugins.microbot.tempoross.enums.HarpoonType;
 )
 
 public interface TemporossConfig extends Config {
+    // Start/Stop
     // Mode
     // Inventory
     // Equipment
     // Overlay
+
+    @ConfigSection(
+        name = "Hotkey",
+        description = "Start/Stop Hotkey settings",
+        position = 0,
+        closedByDefault = false
+    )
+    String startStopSection = "StartStop";
 
     @ConfigSection(
         name = "Mode",
@@ -188,5 +197,16 @@ public interface TemporossConfig extends Config {
     )
     default boolean showStatsOverlay() {
         return true;
+    }
+
+    @ConfigItem(
+        keyName = "startStopHotkey",
+        name = "On/Off Hotkey Toggle",
+        description = "Start/Stop Toggle",
+        position = 1,
+        section = startStopSection
+    )
+    default Keybind startStopHotkey() {
+        return Keybind.NOT_SET;
     }
 }

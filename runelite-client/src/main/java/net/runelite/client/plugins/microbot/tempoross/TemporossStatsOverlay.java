@@ -19,6 +19,8 @@ import java.awt.image.BufferedImage;
 
 public class TemporossStatsOverlay extends OverlayPanel {
 
+    private static final Font TITLE_FONT = new Font(Font.SANS_SERIF, Font.BOLD, 18);
+    
     private final TemporossPlugin plugin;
     private final ItemManager itemManager;
     private static final int FISH_IMAGE_ID = ItemID.TEMPOROSS_HARPOONFISH;
@@ -68,11 +70,30 @@ public class TemporossStatsOverlay extends OverlayPanel {
         panelComponent.setPreferredSize(new Dimension(180, 180));
         panelComponent.setBackgroundColor(new Color(173, 216, 230, 40));
 
-        // Create title line component
-        final LineComponent titleLine = LineComponent.builder()
-                .right("TEMPOROSS")
-                .rightColor(Color.CYAN)
-                .build();
+        // Render custom title with bold, larger font at top right
+        Font originalFont = graphics.getFont();
+        graphics.setFont(TITLE_FONT);
+        
+        String titleText = "TEMPOROSS";
+        FontMetrics titleMetrics = graphics.getFontMetrics();
+        int titleWidth = titleMetrics.stringWidth(titleText);
+        int titleHeight = titleMetrics.getHeight();
+        
+        // Calculate position at top right of the overlay
+        Dimension panelSize = panelComponent.getPreferredSize();
+        int titleX = (panelSize != null ? panelSize.width : 180) - titleWidth - 10;
+        int titleY = titleHeight;
+        
+        // Draw shadow for better visibility
+        graphics.setColor(Color.BLACK);
+        graphics.drawString(titleText, titleX + 1, titleY + 1);
+        
+        // Draw the actual title text
+        graphics.setColor(Color.CYAN);
+        graphics.drawString(titleText, titleX, titleY);
+        
+        // Restore original font
+        graphics.setFont(originalFont);
 
         // Create and add the image component dynamically
         BufferedImage fishImage = getHarpoonFishImage();
@@ -80,9 +101,19 @@ public class TemporossStatsOverlay extends OverlayPanel {
             ImageComponent imageComponent = new ImageComponent(fishImage);
             panelComponent.getChildren().add(imageComponent);
         }
-        
-        // Add the title to the panel
-        panelComponent.getChildren().add(titleLine);
+
+        // Add plugin status
+        if (plugin.started) {
+            panelComponent.getChildren().add(TitleComponent.builder()
+                    .text("Tempoross Plugin: Enabled")
+                    .color(Color.GREEN)
+                    .build());
+        } else {
+            panelComponent.getChildren().add(TitleComponent.builder()
+                    .text("Tempoross Plugin: Disabled")
+                    .color(Color.RED)
+                    .build());
+        }
 
         // Add game statistics
         panelComponent.getChildren().add(LineComponent.builder()
