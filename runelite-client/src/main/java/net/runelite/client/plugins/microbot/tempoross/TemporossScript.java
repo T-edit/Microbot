@@ -43,6 +43,8 @@ public class TemporossScript extends Script {
     public static final String VERSION = "2.0";
     public static final Pattern DIGIT_PATTERN = Pattern.compile("(\\d+)");
     public static final int TEMPOROSS_REGION = 12078;
+    
+    private TemporossPlugin plugin;
 
     // Game state variables
 
@@ -65,8 +67,9 @@ public class TemporossScript extends Script {
     public static TileObject cachedBrokenTotem = null;
     public static TileObject cachedBrokenMast = null;
 
-    public boolean run(TemporossConfig config) {
+    public boolean run(TemporossConfig config, TemporossPlugin plugin) {
         temporossConfig = config;
+        this.plugin = plugin;
         ENERGY = 0;
         INTENSITY = 0;
         ESSENCE = 0;
@@ -82,8 +85,7 @@ public class TemporossScript extends Script {
 
         mainScheduledFuture = scheduledExecutorService.scheduleWithFixedDelay(() ->{
             try {
-                if (!Microbot.isLoggedIn()) return;
-                if (!super.run()) return;
+                if (!Microbot.isLoggedIn() || !super.run() || !plugin.started) return;
                 if (BreakHandlerScript.isBreakActive() || BreakHandlerScript.isMicroBreakActive()) return;
 
                 if (!isInMinigame()) {
@@ -762,12 +764,12 @@ public class TemporossScript extends Script {
         }
         
         // Skip fire handling if both energy and essence are low (solo mode only)
-        // BUT override this skip if player is within 5 tiles of any fire
+        // BUT override this skip if player is within 7 tiles of any fire
         if (temporossConfig.solo() && ENERGY <= 10 && ESSENCE <= 35) {
-            // Check if player is within 5 tiles of any fire - override skip condition if true
+            // Check if player is within 7 tiles of any fire - override skip condition if true
             WorldPoint playerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
             boolean nearbyFire = !sortedFires.isEmpty() && sortedFires.stream().anyMatch(fire -> 
-                playerLocation.distanceTo(fire.getWorldLocation()) <= 5);
+                playerLocation.distanceTo(fire.getWorldLocation()) <= 7);
             
             if (nearbyFire) {
                 log("Solo mode: Energy (" + ENERGY + "%) and essence (" + ESSENCE + "%) are low, but fire within 5 tiles detected - forcing fire handling");
@@ -855,6 +857,15 @@ public class TemporossScript extends Script {
         TileObject damagedMast = workArea.getBrokenMast();
         if(damagedMast == null)
             return;
+
+        // PRIORITY CHECK: Always check if player is standing on inCloud during mast repair
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+        if (inCloud(playerLocation, 0)) {
+            log("InCloud detected at player position during mast repair - dodging to safe location");
+            walkToSafePoint();
+            sleepUntil(() -> !Rs2Player.isMoving() && !playerLocation.equals(Rs2Player.getWorldLocation()), 3000);
+            return; // Exit to prevent mast repair while dodging
+        }
 
         // Check if within range and have hammer if needed (or using Imcando hammer off-hand)
         if (Microbot.getClient().getLocalPlayer().getWorldLocation().distanceTo(damagedMast.getWorldLocation()) <= 6
@@ -1297,6 +1308,15 @@ public class TemporossScript extends Script {
         Rs2Camera.setZoom(0); // Set to maximum zoom distance
         Rs2Camera.setPitch(383); // Set to maximum pitch (looking straight down)
         
+        // PRIORITY CHECK: Always check if player is standing on inCloud and dodge if necessary
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+        if (inCloud(playerLocation, 0)) {
+            log("InCloud detected at player position - dodging to safe location");
+            walkToSafePoint();
+            sleepUntil(() -> !Rs2Player.isMoving() && !playerLocation.equals(Rs2Player.getWorldLocation()), 3000);
+            return; // Exit to prevent other actions while dodging
+        }
+        
         // PRIORITY CHECK: If a wave is incoming and we're not tethered, handle tethering immediately
         if (checkAndHandleIncomingWave()) {
             log("Successfully tethered in handleMainLoop, will continue with state: " + state);
@@ -1323,11 +1343,11 @@ public class TemporossScript extends Script {
                         if (inCloud(Microbot.getClient().getLocalPlayer().getWorldLocation(), 1)) {
                             log("Current spot is clouded, looking for a better fishing spot...");
 
-                            var playerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
+                            var localPlayerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
 
                             var safeFishSpot = fishSpots.stream()
                                     .filter(spot -> !inCloud(spot.getWorldLocation(), 1))
-                                    .min(Comparator.comparingInt(spot -> spot.getWorldLocation().distanceTo(playerLocation)))
+                                    .min(Comparator.comparingInt(spot -> spot.getWorldLocation().distanceTo(localPlayerLocation)))
                                     .orElse(null);
 
                             if (safeFishSpot != null) {
@@ -1479,8 +1499,8 @@ public class TemporossScript extends Script {
                                 .orElse(null);
                         
                         if (closestCloud != null) {
-                            WorldPoint playerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
-                            int distanceToCloud = playerLocation.distanceTo(closestCloud.getWorldLocation());
+                            WorldPoint currentPlayerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
+                            int distanceToCloud = currentPlayerLocation.distanceTo(closestCloud.getWorldLocation());
                             
                             // Move next to the cloud if not already close
                             if (distanceToCloud > 2) {
@@ -1753,12 +1773,12 @@ public class TemporossScript extends Script {
     // method to fight fires that is in a path to a location
     public boolean fightFiresInPath(WorldPoint location) {
         // Skip fire handling if both energy and essence are low (solo mode only)
-        // BUT override this skip if player is within 5 tiles of any fire
+        // BUT override this skip if player is within 7 tiles of any fire
         if (temporossConfig.solo() && ENERGY <= 10 && ESSENCE <= 35) {
-            // Check if player is within 5 tiles of any fire - override skip condition if true
+            // Check if player is within 7 tiles of any fire - override skip condition if true
             WorldPoint playerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
             boolean nearbyFire = !sortedFires.isEmpty() && sortedFires.stream().anyMatch(fire -> 
-                playerLocation.distanceTo(fire.getWorldLocation()) <= 5);
+                playerLocation.distanceTo(fire.getWorldLocation()) <= 7);
             
             if (nearbyFire) {
                 log("Solo mode: Energy (" + ENERGY + "%) and essence (" + ESSENCE + "%) are low, but fire within 5 tiles detected - forcing fire handling");

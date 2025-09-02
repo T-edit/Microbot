@@ -25,7 +25,10 @@ import net.runelite.client.plugins.microbot.tempoross.enums.HarpoonType;
 import net.runelite.client.plugins.microbot.util.npc.Rs2Npc;
 import net.runelite.client.plugins.microbot.util.npc.Rs2NpcModel;
 import net.runelite.client.plugins.microbot.util.player.Rs2Player;
+import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.input.KeyManager;
+import net.runelite.client.util.HotkeyListener;
 
 import java.util.regex.Pattern;
 
@@ -64,6 +67,17 @@ public class TemporossPlugin extends Plugin {
     @Inject
     private ClientThread clientThread;
 
+    @Inject
+    private KeyManager keyManager;
+
+    public boolean started = false;
+
+    private final HotkeyListener pluginToggle = new HotkeyListener(() -> config.startStopHotkey()) {
+        @Override
+        public void hotkeyPressed() {
+            toggle();
+        }
+    };
 
     public static int waves = 0;
     public static int fireClouds = 0;
@@ -100,6 +114,24 @@ public class TemporossPlugin extends Plugin {
     private boolean inGame = false;
     // Track if player just won a game (to avoid counting as loss when exiting)
     private boolean justWon = false;
+
+    public void toggle() {
+        if (!Microbot.isLoggedIn()) {
+            return;
+        }
+
+        setStarted(!started);
+    }
+
+    public void setStarted(boolean started) {
+        this.started = started;
+
+        if (started) {
+            Rs2Walker.setTarget(null);
+        } else {
+            Rs2Walker.setTarget(null);
+        }
+    }
 
     // Getters for game statistics
     public int getTotalGames() {
@@ -264,13 +296,15 @@ public class TemporossPlugin extends Plugin {
             toggleStatsOverlay(config.showStatsOverlay());
         }
         EnergyStateManager.init(clientThread);
-        temporossScript.run(config);
+        keyManager.registerKeyListener(pluginToggle);
+        temporossScript.run(config, this);
     }
 
     @Override
     protected void shutDown() throws Exception {
         super.shutDown();
         EnergyStateManager.shutdown();
+        keyManager.unregisterKeyListener(pluginToggle);
         // Reset all statistics when plugin is disabled
         resetAllStatistics();
         temporossScript.shutdown();
