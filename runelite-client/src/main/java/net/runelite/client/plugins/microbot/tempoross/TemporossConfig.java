@@ -201,8 +201,8 @@ public interface TemporossConfig extends Config {
 
     @ConfigItem(
         keyName = "startStopHotkey",
-        name = "On/Off Hotkey Toggle",
-        description = "Set HotKey Toggle to start/stop plugin",
+        name = "Start/Pause Hotkey Toggle",
+        description = "Set Hotkey Toggle to Start/Pause plugin",
         position = 1,
         section = startStopSection
     )

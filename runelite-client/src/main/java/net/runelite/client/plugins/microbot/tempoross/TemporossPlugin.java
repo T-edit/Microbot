@@ -130,18 +130,28 @@ public class TemporossPlugin extends Plugin {
         this.started = started;
 
         if (started && !wasStarted) {
-            // Starting for the first time - initialize session timing
-            sessionStartTime = System.currentTimeMillis();
-            pausedTime = 0; // Reset paused time when starting fresh
-            pauseStartTime = 0;
-            Microbot.log("Session timing started via hotkey toggle");
+            // Starting or resuming
+            if (sessionStartTime == 0) {
+                // Starting for the first time - initialize session timing
+                sessionStartTime = System.currentTimeMillis();
+                pausedTime = 0;
+                pauseStartTime = 0;
+                Microbot.log("Session timing started via hotkey toggle");
+            } else {
+                // Resuming from pause - add paused time to total
+                if (pauseStartTime > 0) {
+                    pausedTime += System.currentTimeMillis() - pauseStartTime;
+                    pauseStartTime = 0;
+                    Microbot.log("Session timing resumed via hotkey toggle");
+                }
+            }
             Rs2Walker.setTarget(null);
         } else if (!started && wasStarted) {
-            // Stopping - reset timing to 0
-            sessionStartTime = 0;
-            pausedTime = 0;
-            pauseStartTime = 0;
-            Microbot.log("Session timing reset to 0 via hotkey toggle");
+            // Pausing - record pause start time
+            if (sessionStartTime > 0) {
+                pauseStartTime = System.currentTimeMillis();
+                Microbot.log("Session timing paused via hotkey toggle");
+            }
             Rs2Walker.setTarget(null);
         }
     }
@@ -239,7 +249,8 @@ public class TemporossPlugin extends Plugin {
             Microbot.log("All statistics reset. Current permits: " + totalRewardPermits + ", baseline: " + sessionBaselinePermits + ", isFirstPermitVarbitChange set to true");
         });
         
-        // Reset pause timing variables to prevent negative runtime calculations
+        // Reset timing variables to completely reset runtime
+        sessionStartTime = 0;
         pausedTime = 0;
         pauseStartTime = 0;
 
