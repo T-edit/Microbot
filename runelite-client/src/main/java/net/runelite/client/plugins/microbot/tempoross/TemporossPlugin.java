@@ -109,6 +109,8 @@ public class TemporossPlugin extends Plugin {
     private int currentFishingXp = 0;
     private int sessionFishingXp = 0;
     private long sessionStartTime = 0;
+    private long pausedTime = 0; // Track total time the plugin was paused
+    private long pauseStartTime = 0; // Track when the current pause started
 
     // Track if player is currently in a game
     private boolean inGame = false;
@@ -124,11 +126,22 @@ public class TemporossPlugin extends Plugin {
     }
 
     public void setStarted(boolean started) {
+        boolean wasStarted = this.started;
         this.started = started;
 
-        if (started) {
+        if (started && !wasStarted) {
+            // Starting for the first time - initialize session timing
+            sessionStartTime = System.currentTimeMillis();
+            pausedTime = 0; // Reset paused time when starting fresh
+            pauseStartTime = 0;
+            Microbot.log("Session timing started via hotkey toggle");
             Rs2Walker.setTarget(null);
-        } else {
+        } else if (!started && wasStarted) {
+            // Stopping - reset timing to 0
+            sessionStartTime = 0;
+            pausedTime = 0;
+            pauseStartTime = 0;
+            Microbot.log("Session timing reset to 0 via hotkey toggle");
             Rs2Walker.setTarget(null);
         }
     }
@@ -160,11 +173,7 @@ public class TemporossPlugin extends Plugin {
     }
 
     public int getFishingXpPerHour() {
-        if (sessionStartTime == 0) {
-            return 0;
-        }
-
-        long timeElapsed = System.currentTimeMillis() - sessionStartTime;
+        long timeElapsed = getSessionRuntime();
         // Avoid division by zero
         if (timeElapsed == 0) {
             return 0;
@@ -175,11 +184,7 @@ public class TemporossPlugin extends Plugin {
     }
 
     public int getRewardPermitsPerHour() {
-        if (sessionStartTime == 0) {
-            return 0;
-        }
-
-        long timeElapsed = System.currentTimeMillis() - sessionStartTime;
+        long timeElapsed = getSessionRuntime();
         // Avoid division by zero
         if (timeElapsed == 0) {
             return 0;
@@ -194,7 +199,16 @@ public class TemporossPlugin extends Plugin {
         if (sessionStartTime == 0) {
             return 0;
         }
-        return System.currentTimeMillis() - sessionStartTime;
+        long currentTime = System.currentTimeMillis();
+        long totalElapsed = currentTime - sessionStartTime;
+        long currentPausedTime = pausedTime;
+        
+        // If currently paused, add the current pause duration
+        if (!started && pauseStartTime > 0) {
+            currentPausedTime += currentTime - pauseStartTime;
+        }
+        
+        return totalElapsed - currentPausedTime;
     }
 
     // Reset all statistics
@@ -224,8 +238,10 @@ public class TemporossPlugin extends Plugin {
 
             Microbot.log("All statistics reset. Current permits: " + totalRewardPermits + ", baseline: " + sessionBaselinePermits + ", isFirstPermitVarbitChange set to true");
         });
-
-        sessionStartTime = System.currentTimeMillis();
+        
+        // Reset pause timing variables to prevent negative runtime calculations
+        pausedTime = 0;
+        pauseStartTime = 0;
 
         // Reset game state flags
         inGame = false;
@@ -248,13 +264,15 @@ public class TemporossPlugin extends Plugin {
 
     @Subscribe
     public void onStatChanged(StatChanged statChanged) {
+        if (!started) return; // Don't track XP when plugin is paused
+        
         if (statChanged.getSkill() == Skill.FISHING) {
             int newXp = statChanged.getXp();
             if (startingFishingXp == 0) {
                 // Initialize starting XP if not set
                 startingFishingXp = newXp;
                 currentFishingXp = newXp;
-                sessionStartTime = System.currentTimeMillis();
+                // Don't initialize sessionStartTime here - only when plugin is toggled on
             } else if (newXp > currentFishingXp) {
                 // Update session XP gained
                 sessionFishingXp += (newXp - currentFishingXp);
@@ -276,6 +294,10 @@ public class TemporossPlugin extends Plugin {
 
 
     protected void startUp() throws Exception {
+        // Always disable the hotkey toggle by default when plugin is enabled
+        started = false;
+        Microbot.log("Plugin enabled - hotkey toggle disabled by default, user must toggle to start");
+        
         // Only reset statistics on the very first startup (when plugin is initially enabled)
         // This preserves session statistics during automatic plugin restarts (e.g., after login)
         if (isFirstStartup) {
@@ -284,10 +306,6 @@ public class TemporossPlugin extends Plugin {
             isFirstStartup = false;
         } else {
             Microbot.log("Plugin restart detected - preserving existing session statistics");
-            // Still need to initialize tracking variables if not already done
-            if (sessionStartTime == 0) {
-                sessionStartTime = System.currentTimeMillis();
-            }
         }
 
         if (overlayManager != null) {
@@ -336,13 +354,15 @@ public class TemporossPlugin extends Plugin {
         // Player entered the minigame area
         if (currentlyInMinigame && !inGame) {
             inGame = true;
-            totalGames++;
-            Microbot.log("Entered Tempoross minigame area. Total games: " + totalGames);
+            if (started) { // Only count games when plugin is active
+                totalGames++;
+                Microbot.log("Entered Tempoross minigame area. Total games: " + totalGames);
+            }
         }
         // Player exited the minigame area without a win
         else if (!currentlyInMinigame && inGame) {
             // If we haven't registered a win for this game, count it as a loss
-            if (!justWon) {
+            if (!justWon && started) { // Only count losses when plugin is active
                 losses++;
                 Microbot.log("Left Tempoross minigame area without winning. Total losses: " + losses);
             }
@@ -465,7 +485,7 @@ public class TemporossPlugin extends Plugin {
                     Microbot.log("Initialized permit tracking baseline: " + totalRewardPermits);
                 } else {
                     // Plugin restart - we may have gained permits, so count the difference
-                    if (currentPermits > totalRewardPermits) {
+                    if (currentPermits > totalRewardPermits && started) { // Only count gains when plugin is active
                         int gained = currentPermits - totalRewardPermits;
                         sessionRewardPermits += gained;
                         Microbot.log("Plugin restart detected - counted " + gained + " permits gained. Session total: " + sessionRewardPermits);
@@ -475,6 +495,14 @@ public class TemporossPlugin extends Plugin {
                     Microbot.log("Reinitialized permit tracking after restart: " + totalRewardPermits);
                 }
                 isFirstPermitVarbitChange = false;
+                return;
+            }
+
+            // Only track permit changes when plugin is active
+            if (!started) {
+                // Still update tracking variables but don't count gains
+                previousTotalRewardPermits = currentPermits;
+                totalRewardPermits = currentPermits;
                 return;
             }
 
@@ -555,13 +583,14 @@ public class TemporossPlugin extends Plugin {
             // Track game completions
             if (message.contains("Reward permits:"))
             {
-                // Track wins
-                wins++;
+                // Track wins only when plugin is active
+                if (started) {
+                    wins++;
+                    Microbot.log("Tempoross defeated! Total wins: " + wins);
+                    Microbot.log("Total games played: " + totalGames);
+                }
                 // Mark that player just won a game (to avoid counting as loss when exiting)
                 justWon = true;
-
-                Microbot.log("Tempoross defeated! Total wins: " + wins);
-                Microbot.log("Total games played: " + totalGames);
             }
         }
     }

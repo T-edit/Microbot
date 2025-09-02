@@ -29,7 +29,7 @@ public class TemporossProgressionOverlay extends OverlayPanel {
 
     @Override
     public Dimension render(Graphics2D graphics) {
-        if (TemporossScript.isInMinigame()) {
+        if (TemporossScript.isInMinigame() && plugin.started) {
             State currentState = TemporossScript.state;
             if (currentState != null) {
                 // Set up the panel's visual properties

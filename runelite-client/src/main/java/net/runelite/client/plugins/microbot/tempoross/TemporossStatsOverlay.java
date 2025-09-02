@@ -115,57 +115,60 @@ public class TemporossStatsOverlay extends OverlayPanel {
                     .build());
         }
 
-        // Add game statistics
-        panelComponent.getChildren().add(LineComponent.builder()
-                .left("Games:")
-                .right(String.valueOf(plugin.getTotalGames()))
-                .build());
+        // Only display statistics when plugin is started
+        if (plugin.started) {
+            // Add game statistics
+            panelComponent.getChildren().add(LineComponent.builder()
+                    .left("Games:")
+                    .right(String.valueOf(plugin.getTotalGames()))
+                    .build());
 
-        // Add win/loss statistics
-        panelComponent.getChildren().add(LineComponent.builder()
-                .left("Wins:")
-                .right(String.valueOf(plugin.getWins()))
-                .build());
+            // Add win/loss statistics
+            panelComponent.getChildren().add(LineComponent.builder()
+                    .left("Wins:")
+                    .right(String.valueOf(plugin.getWins()))
+                    .build());
 
-        panelComponent.getChildren().add(LineComponent.builder()
-                .left("Losses:")
-                .right(String.valueOf(plugin.getLosses()))
-                .build());
-                
-        // Add session reward permits information
-        panelComponent.getChildren().add(LineComponent.builder()
-                .left("Reward Permits gained:")
-                .right(String.valueOf(plugin.getSessionRewardPermits()))
-                .build());
-                
-        // Add reward permits per hour information
-        panelComponent.getChildren().add(LineComponent.builder()
-                .left("Reward Permit p/Hr:")
-                .right(String.valueOf(plugin.getRewardPermitsPerHour()))
-                .build());
-                
-        // Add total reward permits information
-        panelComponent.getChildren().add(LineComponent.builder()
-                .left("Total Reward Permits:")
-                .right(String.valueOf(plugin.getTotalRewardPermits()))
-                .build());
-                
-        // Add fishing XP information
-        panelComponent.getChildren().add(LineComponent.builder()
-                .left("Fishing XP gained:")
-                .right(formatNumber(plugin.getSessionFishingXp()))
-                .build());
-                
-        panelComponent.getChildren().add(LineComponent.builder()
-                .left("Fishing XP/Hour:")
-                .right(formatNumber(plugin.getFishingXpPerHour()))
-                .build());
-                
-        // Add runtime at the bottom
-        panelComponent.getChildren().add(LineComponent.builder()
-                .left("Runtime:")
-                .right(formatTime(plugin.getSessionRuntime()))
-                .build());
+            panelComponent.getChildren().add(LineComponent.builder()
+                    .left("Losses:")
+                    .right(String.valueOf(plugin.getLosses()))
+                    .build());
+                    
+            // Add session reward permits information
+            panelComponent.getChildren().add(LineComponent.builder()
+                    .left("Reward Permits gained:")
+                    .right(String.valueOf(plugin.getSessionRewardPermits()))
+                    .build());
+                    
+            // Add reward permits per hour information
+            panelComponent.getChildren().add(LineComponent.builder()
+                    .left("Reward Permit p/Hr:")
+                    .right(String.valueOf(plugin.getRewardPermitsPerHour()))
+                    .build());
+                    
+            // Add total reward permits information
+            panelComponent.getChildren().add(LineComponent.builder()
+                    .left("Total Reward Permits:")
+                    .right(String.valueOf(plugin.getTotalRewardPermits()))
+                    .build());
+                    
+            // Add fishing XP information
+            panelComponent.getChildren().add(LineComponent.builder()
+                    .left("Fishing XP gained:")
+                    .right(formatNumber(plugin.getSessionFishingXp()))
+                    .build());
+                    
+            panelComponent.getChildren().add(LineComponent.builder()
+                    .left("Fishing XP/Hour:")
+                    .right(formatNumber(plugin.getFishingXpPerHour()))
+                    .build());
+                    
+            // Add runtime at the bottom
+            panelComponent.getChildren().add(LineComponent.builder()
+                    .left("Runtime:")
+                    .right(formatTime(plugin.getSessionRuntime()))
+                    .build());
+        }
 
         return super.render(graphics);
     }
