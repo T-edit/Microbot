@@ -85,8 +85,8 @@ public class TemporossStatsOverlay extends OverlayPanel {
         int titleY = titleHeight;
         
         // Draw shadow for better visibility
-        graphics.setColor(Color.BLACK);
-        graphics.drawString(titleText, titleX + 1, titleY + 1);
+        graphics.setColor(Color.RED);
+        graphics.drawString(titleText, titleX + 2, titleY + 2);
         
         // Draw the actual title text
         graphics.setColor(Color.CYAN);

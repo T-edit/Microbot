@@ -27,6 +27,7 @@ import net.runelite.client.plugins.microbot.util.npc.Rs2NpcModel;
 import net.runelite.client.plugins.microbot.util.player.Rs2Player;
 import net.runelite.client.plugins.microbot.util.walker.Rs2Walker;
 import net.runelite.client.plugins.microbot.util.combat.Rs2Combat;
+import net.runelite.client.plugins.microbot.util.tile.Rs2Tile;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -625,6 +626,13 @@ public class TemporossScript extends Script {
                 .filter(y -> playerLocation.distanceToPath(y.getWorldLocation()) < 30)
                 .sorted(Comparator.comparingInt(x -> playerLocation.distanceToPath(x.getWorldLocation())))
                 .collect(Collectors.toList());
+        
+        // Add detected lightning shadows as dangerous tiles in Rs2Tile system
+        // Duration: 9600ms (9.6seconds) to account for lightning shadow duration before it becomes fire
+        for (GameObject cloud : sortedClouds) {
+            Rs2Tile.addDangerousGameObjectTile(cloud, 9600);
+        }
+        
         TemporossOverlay.setCloudList(sortedClouds);
     }
 
@@ -858,12 +866,20 @@ public class TemporossScript extends Script {
         if(damagedMast == null)
             return;
 
-        // PRIORITY CHECK: Always check if player is standing on inCloud during mast repair
+        // PRIORITY CHECK: Always check if player is standing on dangerous tile (lightning shadow) and dodge if necessary
         WorldPoint playerLocation = Rs2Player.getWorldLocation();
-        if (inCloud(playerLocation, 0)) {
-            log("InCloud detected at player position during mast repair - dodging to safe location");
-            walkToSafePoint();
-            sleepUntil(() -> !Rs2Player.isMoving() && !playerLocation.equals(Rs2Player.getWorldLocation()), 3000);
+        if (Rs2Tile.getDangerousGraphicsObjectTiles().containsKey(playerLocation)) {
+            log("Lightning shadow detected at player position during mast repair - dodging to safe location using Rs2Tile");
+            WorldPoint safeTile = Rs2Tile.getSafeTile();
+            if (safeTile != null) {
+                Rs2Walker.walkFastCanvas(safeTile);
+                sleepUntil(() -> !Rs2Player.isMoving() && !playerLocation.equals(Rs2Player.getWorldLocation()), 3000);
+                log("Successfully moved to safe tile during mast repair: " + safeTile);
+            } else {
+                log("No safe tile found during mast repair, using fallback walkToSafePoint");
+                walkToSafePoint();
+                sleepUntil(() -> !Rs2Player.isMoving(), 3000);
+            }
             return; // Exit to prevent mast repair while dodging
         }
 
@@ -1308,12 +1324,20 @@ public class TemporossScript extends Script {
         Rs2Camera.setZoom(0); // Set to maximum zoom distance
         Rs2Camera.setPitch(383); // Set to maximum pitch (looking straight down)
         
-        // PRIORITY CHECK: Always check if player is standing on inCloud and dodge if necessary
+        // PRIORITY CHECK: Always check if player is standing on dangerous tile (lightning shadow) and dodge if necessary
         WorldPoint playerLocation = Rs2Player.getWorldLocation();
-        if (inCloud(playerLocation, 0)) {
-            log("InCloud detected at player position - dodging to safe location");
-            walkToSafePoint();
-            sleepUntil(() -> !Rs2Player.isMoving() && !playerLocation.equals(Rs2Player.getWorldLocation()), 3000);
+        if (Rs2Tile.getDangerousGraphicsObjectTiles().containsKey(playerLocation)) {
+            log("Lightning shadow detected at player position - dodging to safe location using Rs2Tile");
+            WorldPoint safeTile = Rs2Tile.getSafeTile();
+            if (safeTile != null) {
+                Rs2Walker.walkFastCanvas(safeTile);
+                sleepUntil(() -> !Rs2Player.isMoving() && !playerLocation.equals(Rs2Player.getWorldLocation()), 3000);
+                log("Successfully moved to safe tile: " + safeTile);
+            } else {
+                log("No safe tile found, using fallback walkToSafePoint");
+                walkToSafePoint();
+                sleepUntil(() -> !Rs2Player.isMoving(), 3000);
+            }
             return; // Exit to prevent other actions while dodging
         }
         
@@ -1648,7 +1672,13 @@ public class TemporossScript extends Script {
                     isFilling = false;
                     return;
                 }
-                
+                // Check if there are any fish left for SECOND_FILL state before interacting with the ammo crate
+                if (state == State.SECOND_FILL && State.getAllFish() == 0) {
+                    log("SECOND_FILL: No fish left in inventory, transitioning to ATTACK_TEMPOROSS");
+                    state = State.ATTACK_TEMPOROSS;
+                    isFilling = false;
+                    return;
+                }
                 if (temporossConfig.solo()) {
                     Rs2Camera.setYaw(400);
                     log("Setting camera to face north west for fill action in solo mode");
