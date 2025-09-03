@@ -109,7 +109,7 @@ public class TemporossScript extends Script {
                         // Prioritize repairing damaged masts and totems
                         if(checkAndHandleDamagedStructures()) {
                             log("Damaged structure detected - repair handled at top level");
-                            return; // Return immediately after successful repair
+                            // Continue with normal execution flow to preserve activity context
                         }
                         
                         handleStateLoop();
