@@ -1,7 +1,5 @@
 package net.runelite.client.plugins.microbot.tempoross;
 
-import net.runelite.api.gameval.ItemID;
-import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPanel;
 import net.runelite.client.ui.overlay.OverlayPosition;
@@ -22,24 +20,21 @@ public class TemporossStatsOverlay extends OverlayPanel {
     private static final Font TITLE_FONT = new Font(Font.SANS_SERIF, Font.BOLD, 18);
     
     private final TemporossPlugin plugin;
-    private final ItemManager itemManager;
-    private static final int FISH_IMAGE_ID = ItemID.TEMPOROSS_HARPOONFISH;
 
     @Inject
-    public TemporossStatsOverlay(TemporossPlugin plugin, ItemManager itemManager) {
+    public TemporossStatsOverlay(TemporossPlugin plugin) {
         super(plugin);
         this.plugin = plugin;
-        this.itemManager = itemManager;
         setPosition(OverlayPosition.TOP_LEFT);
         setLayer(OverlayLayer.ABOVE_WIDGETS);
     }
     
-    private BufferedImage getHarpoonFishImage() {
+    private BufferedImage getTemporossEnragedImage() {
         try {
-            // Get the item image from ItemManager
-            BufferedImage img = itemManager.getImage(FISH_IMAGE_ID);
+            // Get the Tempoross(enraged) image from resources folder
+            BufferedImage img = ImageUtil.loadImageResource(TemporossStatsOverlay.class, "/net/runelite/client/plugins/microbot/Tempoross/Tempoross(enraged).png");
             if (img != null) {
-                return ImageUtil.resizeImage(img, 34, 34);
+                return ImageUtil.resizeImage(img, 60, 40);
             }
         } catch (Exception e) {
             // Fall back to null if image loading fails
@@ -96,9 +91,9 @@ public class TemporossStatsOverlay extends OverlayPanel {
         graphics.setFont(originalFont);
 
         // Create and add the image component dynamically
-        BufferedImage fishImage = getHarpoonFishImage();
-        if (fishImage != null) {
-            ImageComponent imageComponent = new ImageComponent(fishImage);
+        BufferedImage temporossImage = getTemporossEnragedImage();
+        if (temporossImage != null) {
+            ImageComponent imageComponent = new ImageComponent(temporossImage);
             panelComponent.getChildren().add(imageComponent);
         }
 
