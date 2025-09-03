@@ -106,7 +106,11 @@ public class TemporossScript extends Script {
                             return; // Return immediately after successful tethering
                         }
                         
-                        // Prioritize repairing damaged masts and totems
+                        // PRIORITY FIX: Handle fires BEFORE structure repairs to prevent running into fire
+                        // In solo mode, continuously handle fires.
+                        handleFires();
+                        
+                        // Prioritize repairing damaged masts and totems AFTER fires are handled
                         if(checkAndHandleDamagedStructures()) {
                             log("Damaged structure detected - repair handled at top level");
                             // Continue with normal execution flow to preserve activity context
@@ -115,9 +119,6 @@ public class TemporossScript extends Script {
                         handleStateLoop();
                         if(areItemsMissing())
                             return;
-                        // In solo mode, continuously handle fires.
-                        // In mass world mode, fire-fighting is now handled dynamically before objectives.
-                        handleFires();
                         // Removed redundant call to handleTether() as it's already called in checkAndHandleIncomingWave()
                         if(isFightingFire || TemporossPlugin.isTethered || TemporossPlugin.incomingWave)
                             return;
