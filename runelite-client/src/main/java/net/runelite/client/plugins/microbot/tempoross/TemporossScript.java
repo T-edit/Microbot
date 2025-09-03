@@ -567,6 +567,7 @@ public class TemporossScript extends Script {
         
         // Set camera yaw to 0 when entering the minigame in solo mode
         if (isInMinigame() && temporossConfig.solo()) {
+            Rs2Camera.setYaw(0);
         }
     }
 
@@ -1159,12 +1160,12 @@ public class TemporossScript extends Script {
 
             if (action.equals("Tether")) {
                 if (Rs2GameObject.interact(tether, action)) {
-                    log(action + "ing - INSTANT PRIORITY");
-                    // Make tethering truly instant by setting isTethered to true immediately
-                    TemporossPlugin.isTethered = true;
-                    // Reduce wait time to absolute minimum (100ms) to ensure near-instant tethering
-                    // This is just to allow the game to register the interaction
-                    sleepUntil(() -> TemporossPlugin.isTethered == TemporossPlugin.incomingWave, 100);
+                    log(action + "ing");
+                    // Wait for real tether state to update instead of forcing it
+                    if (!sleepUntil(() -> TemporossPlugin.isTethered, 1500)) {
+                        log("Tether interaction did not flip state; will retry on next tick");
+                        return;
+                    }
                     
                     // DELAYED REPAIR: Check for damaged structures after 2-second delay following tethering
                     // This fixes the issue where game doesn't allow repairs while still tethered
@@ -1817,17 +1818,17 @@ public class TemporossScript extends Script {
                 return true; // Return true to allow walking to continue
             }
         }
-        
+
         Rs2WorldPoint playerLocation = new Rs2WorldPoint(Microbot.getClient().getLocalPlayer().getWorldLocation());
-        List<WorldPoint> walkerPath = playerLocation.pathTo(location,true);
+        List<WorldPoint> walkerPath = playerLocation.pathTo(location, true);
         walkPath = walkerPath;
+        if (walkerPath == null || walkerPath.isEmpty()) {
+            return true;
+        }
         if (sortedFires.isEmpty()) {
             return true;
         }
-
         int fullBucketCount = Rs2Inventory.count(ItemID.BUCKET_WATER);
-
-
         // Filter fires that are actually on the path or near the path
         List<Rs2NpcModel> firesInPath = sortedFires.stream()
                 .filter(fire -> {

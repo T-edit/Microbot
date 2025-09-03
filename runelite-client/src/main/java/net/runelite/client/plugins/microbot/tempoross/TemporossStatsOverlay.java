@@ -18,7 +18,10 @@ import java.awt.image.BufferedImage;
 public class TemporossStatsOverlay extends OverlayPanel {
 
     private static final Font TITLE_FONT = new Font(Font.SANS_SERIF, Font.BOLD, 18);
-    
+    // Consider moving this to a constants class if reused elsewhere
+    private static final String TEMPOROSS_IMG_PATH = "/net/runelite/client/plugins/microbot/tempoross/Tempoross(enraged).png";
+    private BufferedImage cachedTemporossImage;
+
     private final TemporossPlugin plugin;
 
     @Inject
@@ -28,20 +31,19 @@ public class TemporossStatsOverlay extends OverlayPanel {
         setPosition(OverlayPosition.TOP_LEFT);
         setLayer(OverlayLayer.ABOVE_WIDGETS);
     }
-    
-    private BufferedImage getTemporossEnragedImage() {
-        try {
-            // Get the Tempoross(enraged) image from resources folder
-            BufferedImage img = ImageUtil.loadImageResource(TemporossStatsOverlay.class, "/net/runelite/client/plugins/microbot/Tempoross/Tempoross(enraged).png");
-            if (img != null) {
-                return ImageUtil.resizeImage(img, 60, 40);
-            }
-        } catch (Exception e) {
-            // Fall back to null if image loading fails
+        private BufferedImage getTemporossEnragedImage() {
+        if (cachedTemporossImage != null) {
+            return cachedTemporossImage;
         }
-        return null;
+        try {
+            BufferedImage img = ImageUtil.loadImageResource(TemporossStatsOverlay.class, TEMPOROSS_IMG_PATH);
+            cachedTemporossImage = (img != null) ? ImageUtil.resizeImage(img, 60, 40) : null;
+        } catch (Exception e) {
+            cachedTemporossImage = null; // Keep null on failure
+        }
+        return cachedTemporossImage;
     }
-    
+
     // Format numbers with commas for thousands
     private String formatNumber(int number) {
         return String.format("%,d", number);
