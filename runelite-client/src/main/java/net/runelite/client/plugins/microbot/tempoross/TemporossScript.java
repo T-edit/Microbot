@@ -917,14 +917,14 @@ public class TemporossScript extends Script {
                 if (inCloud(mastLocation, 2)) {
                     log("Lightning shadow detected near mast - waiting for it to become fire");
 
-                    // Wait for lightning shadow to transform into fire NPC (up to 5 seconds)
+                    // Wait for lightning shadow to transform into fire NPC (up to 10 seconds)
                     boolean fireAppeared = sleepUntil(() -> {
                         Rs2NpcModel fire = sortedFires.stream()
                                 .filter(npc -> mastLocation.distanceTo(npc.getWorldLocation()) <= 3)
                                 .findFirst()
                                 .orElse(null);
                         return fire != null;
-                    }, 5000);
+                    }, 10000);
 
                     if (fireAppeared) {
                         // Find and douse the fire that appeared from lightning shadow using existing sortedFires
@@ -1972,7 +1972,7 @@ public class TemporossScript extends Script {
             if (Rs2Npc.interact(fire, "Douse")) {
                 log("Dousing fire in path" + (temporossConfig.solo() ? "" : " (mass world mode)"));
                 sleepUntil(Rs2Player::isInteracting, 2000);
-                sleepUntil(() -> !Rs2Player.isInteracting(), 1800);
+                sleepUntil(() -> !Rs2Player.isInteracting(), 2000);
             }
         }
 
