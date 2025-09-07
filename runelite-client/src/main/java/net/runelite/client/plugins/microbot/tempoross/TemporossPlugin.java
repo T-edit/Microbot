@@ -22,6 +22,7 @@ import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.microbot.Microbot;
 import net.runelite.client.plugins.microbot.tempoross.enums.HarpoonType;
+import net.runelite.client.plugins.microbot.util.cache.Rs2NpcCache;
 import net.runelite.client.plugins.microbot.util.npc.Rs2Npc;
 import net.runelite.client.plugins.microbot.util.npc.Rs2NpcModel;
 import net.runelite.client.plugins.microbot.util.player.Rs2Player;
@@ -86,6 +87,10 @@ public class TemporossPlugin extends Plugin {
     public static long lastWaveHitTime = 0;
     public static State previousState = null;
     public static boolean wasHitByWave = false;
+
+    // Lightning hit handling
+    public static boolean lightningHit = false;
+    public static long lastLightningHitMs = 0L;
 
     // Wave recovery grace period to prevent emergency state transitions immediately after wave recovery
     public static long waveRecoveryTime = 0;
@@ -263,7 +268,7 @@ public class TemporossPlugin extends Plugin {
     public void onGameStateChanged(GameStateChanged event) {
         if (event.getGameState() == GameState.LOGGED_IN) {
             // Only reset the first permit varbit change flag if this is the very first login after plugin enable
-            // This prevents session progress from being reset on subsequent logins during the same session
+            // This preserves session statistics during automatic plugin restarts (e.g., after login)
             if (isFirstStartup || sessionStartTime == 0) {
                 isFirstPermitVarbitChange = true;
                 Microbot.log("Player logged in - first login after plugin enable, initializing permit tracking");
@@ -324,7 +329,7 @@ public class TemporossPlugin extends Plugin {
             toggleProgressionOverlay(config.showProgressionOverlay());
             toggleStatsOverlay(config.showStatsOverlay());
         }
-        EnergyStateManager.init(clientThread);
+        EnergyStateManager.init();
         keyManager.registerKeyListener(pluginToggle);
         temporossScript.run(config, this);
     }
@@ -449,7 +454,10 @@ public class TemporossPlugin extends Plugin {
             }
         }
 
-        Rs2NpcModel doubleFishingSpot = Rs2Npc.getNpc(NpcID.TEMPOROSS_HARPOONFISH_FISHINGSPOT_SPECIAL);
+        Rs2NpcModel doubleFishingSpot = Rs2NpcCache.getAllNpcs()
+                .filter(npc -> npc.getId() == NpcID.TEMPOROSS_HARPOONFISH_FISHINGSPOT_SPECIAL)
+                .findFirst()
+                .orElse(null);
 
         if (TemporossScript.state == State.INITIAL_COOK && doubleFishingSpot != null) {
             TemporossScript.state = TemporossScript.state.next;
@@ -459,6 +467,9 @@ public class TemporossPlugin extends Plugin {
         {
             return;
         }
+
+        // Handle emergency catch state transitions during game ticks
+        EnergyStateManager.handleEmergencyCatchStateTransition();
 
         // If state is null and we're not in wave hit recovery mode, set a default state
         if (TemporossScript.state == null && !wasHitByWave)
@@ -493,7 +504,8 @@ public class TemporossPlugin extends Plugin {
                     // True initialization - set baseline
                     previousTotalRewardPermits = currentPermits;
                     totalRewardPermits = currentPermits;
-                    Microbot.log("Initialized permit tracking baseline: " + totalRewardPermits);
+                    sessionBaselinePermits = currentPermits; //Set session baseline for proper session calculations
+                    Microbot.log("Initialized permit tracking baseline: " + totalRewardPermits + ", session baseline: " + sessionBaselinePermits);
                 } else {
                     // Plugin restart - we may have gained permits, so count the difference
                     if (currentPermits > totalRewardPermits && started) { // Only count gains when plugin is active
@@ -503,6 +515,11 @@ public class TemporossPlugin extends Plugin {
                     }
                     previousTotalRewardPermits = currentPermits;
                     totalRewardPermits = currentPermits;
+                    // Set session baseline
+                    if (sessionBaselinePermits == 0) {
+                        sessionBaselinePermits = currentPermits;
+                        Microbot.log("Set session baseline during restart: " + sessionBaselinePermits);
+                    }
                     Microbot.log("Reinitialized permit tracking after restart: " + totalRewardPermits);
                 }
                 isFirstPermitVarbitChange = false;
@@ -589,6 +606,14 @@ public class TemporossPlugin extends Plugin {
             {
                 fireClouds++;
                 Microbot.log("Clouds " + fireClouds);
+            }
+
+            // Lightning stun from cannon
+            if (message.contains("The surge of lightning arcs from the cannon into you"))
+            {
+                lightningHit = true;
+                lastLightningHitMs = System.currentTimeMillis();
+                Microbot.log("Lightning hit detected - will switch ammo crate after stun");
             }
 
             // Track game completions

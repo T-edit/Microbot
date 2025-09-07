@@ -6,11 +6,11 @@ import net.runelite.client.plugins.microbot.tempoross.enums.HarpoonType;
 @ConfigGroup("microbot-tempoross")
 @ConfigInformation("<h2>S-1D Tempoross</h2>\n" +
         "<h3>Version: " + TemporossScript.VERSION + "</h3>\n" +
-        "<p>1. <strong>Start the bot outside of the minigame area</strong> to ensure proper functionality.</p>\n" +
+        "<p>1. <strong>Start the bot outside of the minigame area</strong> to ensure proper functionality. Set Hotkey to toggle plugin on</p>\n" +
         "<p></p>\n" +
         "<p>2. <strong>Do not toggle rope/hammer if Spirit Angler's/Imcando hammer is toggled</strong></p>\n" +
         "<p></p>\n" +
-        "<p>3. <strong>Solo Mode:</strong> GPU plugin recommended to be on for quick path detection, <em>6 buckets</em> is recommended as a minimum, recommended to start solo mode with full config options in inventory as time is of the essence. You also need a MINIMUM of <strong>19</strong>  free inv slots at all time.</p>\n" +
+        "<p>3. <strong>Solo Mode:</strong> GPU plugin recommended to be on for quick path detection, <em>6 buckets</em> is recommended as a minimum. You also need a MINIMUM of <strong>19</strong>  free inv slots at all time.</p>\n" +
         "<p></p>\n"
 )
 

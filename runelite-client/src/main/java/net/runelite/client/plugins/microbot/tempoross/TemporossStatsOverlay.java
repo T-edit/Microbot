@@ -18,7 +18,7 @@ import java.awt.image.BufferedImage;
 public class TemporossStatsOverlay extends OverlayPanel {
 
     private static final Font TITLE_FONT = new Font(Font.SANS_SERIF, Font.BOLD, 18);
-    // Consider moving this to a constants class if reused elsewhere
+
     private static final String TEMPOROSS_IMG_PATH = "/net/runelite/client/plugins/microbot/tempoross/Tempoross(enraged).png";
     private BufferedImage cachedTemporossImage;
 

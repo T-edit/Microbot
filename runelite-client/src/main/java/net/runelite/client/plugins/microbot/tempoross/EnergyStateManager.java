@@ -1,9 +1,6 @@
 package net.runelite.client.plugins.microbot.tempoross;
 
 import static net.runelite.client.plugins.microbot.Microbot.log;
-import java.util.Timer;
-import java.util.TimerTask;
-import net.runelite.client.callback.ClientThread;
 
 /**
  * Manages the energy-based target fish logic for Tempoross
@@ -22,51 +19,15 @@ public class EnergyStateManager {
     // Flag to track if we're in the process of transitioning to EMERGENCY_FILL
     private static volatile boolean isTransitioningToEmergencyFill = false;
 
-    // Shared timer instance for state transitions
-    private static volatile Timer sharedTimer = null;
-    
-    // Inject once from plugin startUp
-    private static ClientThread clientThread;
-    
     /**
-     * Initialize the EnergyStateManager with ClientThread for thread-safe state mutations
-     * @param ct the ClientThread instance to use for state mutations
+     * Initialize the EnergyStateManager
      */
-    public static void init(ClientThread ct) {
-        clientThread = ct;
-        // Create a new timer instance during initialization
-        if (sharedTimer != null) {
-            try {
-                sharedTimer.cancel();
-            } catch (Exception ignored) {
-            }
-        }
-        sharedTimer = new Timer("EmergencyCatchStateTimer", true);
+    public static void init() {
+        // No initialization needed for game tick-based approach
     }
     
     public static void shutdown() {
-        try {
-            if (sharedTimer != null) {
-                sharedTimer.cancel();
-                sharedTimer = null;
-            }
-        } catch (Exception ignored) {
-        }
-    }
-    
-    /**
-     * Gets the shared timer, creating a new one if needed
-     * @return a valid Timer instance
-     */
-    private static Timer getSharedTimer() {
-        if (sharedTimer == null) {
-            synchronized (EnergyStateManager.class) {
-                if (sharedTimer == null) {
-                    sharedTimer = new Timer("EmergencyCatchStateTimer", true);
-                }
-            }
-        }
-        return sharedTimer;
+        // No cleanup needed for game tick-based approach
     }
     
     // Energy thresholds and corresponding target fish counts
@@ -104,6 +65,10 @@ public class EnergyStateManager {
         isTransitioningToEmergencyFill = false;
         lastLoggedEnergyValue = 0;
         lastLoggedEmergencyFillEnergyValue = 0;
+        // Reset state caching variables
+        lastLoggedState = null;
+        lastLoggedEmergencyFillState = false;
+        lastLoggedTransitioningState = false;
         
         // If we're in EMERGENCY_CATCH state, reset it to THIRD_CATCH
         // This ensures we don't get stuck in EMERGENCY_CATCH state when starting a new game
@@ -119,10 +84,13 @@ public class EnergyStateManager {
      * @return true if we should transition to EMERGENCY_CATCH, false otherwise
      */
     public static boolean shouldTransitionToEmergencyCatch() {
-        // Log current state and conditions for debugging
-        log("EMERGENCY_CATCH check - State: " + TemporossScript.state + 
-            ", Energy: " + TemporossScript.ENERGY + "%, Solo: " + State.isSolo() + 
-            ", CurrentMode: " + (inEmergencyCatchMode ? "EMERGENCY" : "NORMAL"));
+        // Only log if energy has changed since the last log
+        if (TemporossScript.ENERGY != lastLoggedEmergencyFillEnergyValue) {
+            log("EMERGENCY_CATCH check - State: " + TemporossScript.state + 
+                ", Energy: " + TemporossScript.ENERGY + "%, Solo: " + State.isSolo() + 
+                ", CurrentMode: " + (inEmergencyCatchMode ? "EMERGENCY" : "NORMAL"));
+            lastLoggedEmergencyFillEnergyValue = TemporossScript.ENERGY;
+        }
         
         // Check if we're still in the wave recovery grace period
         if (TemporossPlugin.waveRecoveryTime > 0) {
@@ -155,14 +123,26 @@ public class EnergyStateManager {
             TemporossScript.state == State.INITIAL_FILL ||
             TemporossScript.state == State.SECOND_FILL ||
             TemporossScript.state == State.ATTACK_TEMPOROSS) {
-            log("Not using EMERGENCY_CATCH during state: " + TemporossScript.state);
+            
+            // Only log if state has changed since the last log
+            if (TemporossScript.state != lastLoggedState) {
+                log("Not using EMERGENCY_CATCH during state: " + TemporossScript.state);
+                lastLoggedState = TemporossScript.state;
+            }
             return false;
         }
         
         // Don't transition to EMERGENCY_CATCH if we're already in EMERGENCY_FILL state
         // or if we're in the process of transitioning to EMERGENCY_FILL
         if (TemporossScript.state == State.EMERGENCY_FILL || isTransitioningToEmergencyFill) {
-            log("Not using EMERGENCY_CATCH as we're already in EMERGENCY_FILL state or transitioning to it");
+            // Only log if the emergency fill state or transitioning state has changed
+            boolean currentEmergencyFillState = (TemporossScript.state == State.EMERGENCY_FILL);
+            if (currentEmergencyFillState != lastLoggedEmergencyFillState || 
+                isTransitioningToEmergencyFill != lastLoggedTransitioningState) {
+                log("Not using EMERGENCY_CATCH as we're already in EMERGENCY_FILL state or transitioning to it");
+                lastLoggedEmergencyFillState = currentEmergencyFillState;
+                lastLoggedTransitioningState = isTransitioningToEmergencyFill;
+            }
             return false;
         }
         
@@ -230,79 +210,73 @@ public class EnergyStateManager {
             TemporossScript.state = State.THIRD_CATCH;
             log("Temporarily using THIRD_CATCH for EMERGENCY_CATCH state");
             
-            // Reset the transitioning flag before scheduling the timer
-            // This ensures the flag is reset even if the timer task doesn't execute
+            // Reset the transitioning flag
             isTransitioningToEmergencyFill = false;
             
-            // Use the shared timer to schedule the state restoration
-            getSharedTimer().schedule(
-                new TimerTask() {
-                    @Override
-                    public void run() {
-                        try {
-                            Runnable work = () -> {
-                                // Check if we're in THIRD_CATCH state
-                                if (TemporossScript.state == State.THIRD_CATCH) {
-                                    // Check if we're in emergency catch mode
-                                    if (inEmergencyCatchMode) {
-                                        // Reset the transitioning flag at the start of each check
-                                        isTransitioningToEmergencyFill = false;
-                                        
-                                        // If we're repairing a totem or filling, log it but don't restore yet
-                                        if (TemporossScript.isRepairingTotem || TemporossScript.isFilling) {
-                                            log("Not restoring EMERGENCY_CATCH because we're " + 
-                                                (TemporossScript.isRepairingTotem ? "repairing a totem" : "filling"));
-                                            return;
-                                        }
-                                        
-                                        // Check if we're already in EMERGENCY_FILL state
-                                        if (TemporossScript.state == State.EMERGENCY_FILL) {
-                                            isTransitioningToEmergencyFill = true;
-                                            log("Not restoring EMERGENCY_CATCH because we're already in EMERGENCY_FILL state");
-                                        }
-                                        // If energy is >= 11% and we have enough fish for EMERGENCY_FILL, 
-                                        // we're transitioning to EMERGENCY_FILL
-                                        else if (TemporossScript.ENERGY >= 11) {
-                                            int targetFish = getTargetFishCount();
-                                            int currentRawFish = State.getRawFish();
-                                            
-                                            if (currentRawFish >= targetFish) {
-                                                isTransitioningToEmergencyFill = true;
-                                                log("Transitioning to EMERGENCY_FILL with energy: " + 
-                                                    TemporossScript.ENERGY + "%, fish: " + currentRawFish + "/" + targetFish);
-                                                
-                                                // Actively set the state to EMERGENCY_FILL instead of just not restoring to EMERGENCY_CATCH
-                                                TemporossScript.state = State.EMERGENCY_FILL;
-                                                TemporossScript.isFilling = true;
-                                            }
-                                        }
-                                        
-                                        // Only restore if we're not transitioning to EMERGENCY_FILL
-                                        if (!isTransitioningToEmergencyFill) {
-                                            TemporossScript.state = State.EMERGENCY_CATCH;
-                                            log("Restored EMERGENCY_CATCH state after processing");
-                                        }
-                                    } else {
-                                        log("Not restoring EMERGENCY_CATCH because we're not in emergency catch mode");
-                                    }
-                                } else {
-                                    log("Not restoring EMERGENCY_CATCH because we're not in THIRD_CATCH state (current state: " + TemporossScript.state + ")");
-                                }
-                            };
+            // Set flag to indicate we need to restore the state on next game tick
+            needsEmergencyStateRestore = true;
+        }
+    }
+
+    // Flag to track if we need to restore EMERGENCY_CATCH state on next game tick
+    private static volatile boolean needsEmergencyStateRestore = false;
+
+    /**
+     * Handles emergency catch state transitions during game ticks instead of using timers
+     * This method replaces the timer-based logic to prevent client freezing issues
+     */
+    public static void handleEmergencyCatchStateTransition() {
+        // Handle state restoration for EMERGENCY_CATCH
+        if (needsEmergencyStateRestore) {
+            needsEmergencyStateRestore = false;
+            
+            // Check if we're in THIRD_CATCH state
+            if (TemporossScript.state == State.THIRD_CATCH) {
+                // Check if we're in emergency catch mode
+                if (inEmergencyCatchMode) {
+                    // Reset the transitioning flag at the start of each check
+                    isTransitioningToEmergencyFill = false;
+                    
+                    // If we're repairing a totem or filling, log it but don't restore yet
+                    if (TemporossScript.isRepairingTotem || TemporossScript.isFilling) {
+                        log("Not restoring EMERGENCY_CATCH because we're " + 
+                            (TemporossScript.isRepairingTotem ? "repairing a totem" : "filling"));
+                        return;
+                    }
+                    
+                    // Check if we're already in EMERGENCY_FILL state
+                    if (TemporossScript.state == State.EMERGENCY_FILL) {
+                        isTransitioningToEmergencyFill = true;
+                        log("Not restoring EMERGENCY_CATCH because we're already in EMERGENCY_FILL state");
+                    }
+                    // If energy is >= 11% and we have enough fish for EMERGENCY_FILL, 
+                    // we're transitioning to EMERGENCY_FILL
+                    else if (TemporossScript.ENERGY >= 11) {
+                        int targetFish = getTargetFishCount();
+                        int currentRawFish = State.getRawFish();
+                        
+                        if (currentRawFish >= targetFish) {
+                            isTransitioningToEmergencyFill = true;
+                            log("Transitioning to EMERGENCY_FILL with energy: " + 
+                                TemporossScript.ENERGY + "%, fish: " + currentRawFish + "/" + targetFish);
                             
-                            if (clientThread != null) {
-                                clientThread.invoke(work);
-                            } else {
-                                work.run(); // fallback
-                            }
-                        } catch (Exception e) {
-                            // Catch any exceptions to prevent timer task from failing
-                            log("Error in timer task: " + e.getMessage());
+                            // Actively set the state to EMERGENCY_FILL instead of just not restoring to EMERGENCY_CATCH
+                            TemporossScript.state = State.EMERGENCY_FILL;
+                            TemporossScript.isFilling = true;
                         }
                     }
-                },
-                100 // 100ms delay
-            );
+                    
+                    // Only restore if we're not transitioning to EMERGENCY_FILL
+                    if (!isTransitioningToEmergencyFill) {
+                        TemporossScript.state = State.EMERGENCY_CATCH;
+                        log("Restored EMERGENCY_CATCH state after processing");
+                    }
+                } else {
+                    log("Not restoring EMERGENCY_CATCH because we're not in emergency catch mode");
+                }
+            } else {
+                log("Not restoring EMERGENCY_CATCH because we're not in THIRD_CATCH state (current state: " + TemporossScript.state + ")");
+            }
         }
     }
 
@@ -312,6 +286,11 @@ public class EnergyStateManager {
     
     // Track the last energy value we logged for emergency fill transition
     private static int lastLoggedEmergencyFillEnergyValue = 0;
+    
+    // Track the last state values we logged
+    private static State lastLoggedState = null;
+    private static boolean lastLoggedEmergencyFillState = false;
+    private static boolean lastLoggedTransitioningState = false;
     
     /**
      * Determines if the energy state mode should be active

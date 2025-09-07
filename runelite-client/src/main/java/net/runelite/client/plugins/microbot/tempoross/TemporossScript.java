@@ -17,11 +17,14 @@ import net.runelite.client.plugins.microbot.shortestpath.ShortestPathPlugin;
 import net.runelite.client.plugins.microbot.tempoross.enums.HarpoonType;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2Antiban;
 import net.runelite.client.plugins.microbot.util.antiban.Rs2AntibanSettings;
+import net.runelite.client.plugins.microbot.util.cache.Rs2NpcCache;
+import net.runelite.client.plugins.microbot.util.cache.util.Rs2NpcCacheUtils;
 import net.runelite.client.plugins.microbot.util.camera.Rs2Camera;
 import net.runelite.client.plugins.microbot.util.coords.Rs2WorldArea;
 import net.runelite.client.plugins.microbot.util.coords.Rs2WorldPoint;
 import net.runelite.client.plugins.microbot.util.gameobject.Rs2GameObject;
 import net.runelite.client.plugins.microbot.util.inventory.Rs2Inventory;
+import net.runelite.client.plugins.microbot.util.models.RS2Item;
 import net.runelite.client.plugins.microbot.util.npc.Rs2Npc;
 import net.runelite.client.plugins.microbot.util.npc.Rs2NpcModel;
 import net.runelite.client.plugins.microbot.util.player.Rs2Player;
@@ -44,7 +47,7 @@ public class TemporossScript extends Script {
     public static final String VERSION = "2.0";
     public static final Pattern DIGIT_PATTERN = Pattern.compile("(\\d+)");
     public static final int TEMPOROSS_REGION = 12078;
-    
+
     private TemporossPlugin plugin;
 
     // Game state variables
@@ -59,6 +62,8 @@ public class TemporossScript extends Script {
     public static boolean isFilling = false;
     public static boolean isFightingFire = false;
     public static boolean isRepairingTotem = false;
+    private long lastRepairAttempt = 0;
+    private static final long REPAIR_COOLDOWN = 3000; // 3 seconds
     public static HarpoonType harpoonType;
     public static Rs2NpcModel temporossPool;
     public static List<Rs2NpcModel> sortedFires = new ArrayList<>();
@@ -99,28 +104,28 @@ public class TemporossScript extends Script {
                     } else {
 
                         handleMinigame();
-                        
+
                         // Prioritize tether action if a wave is coming - using the new method
                         if(checkAndHandleIncomingWave()) {
                             log("Wave incoming - tethering handled at top level");
                             return; // Return immediately after successful tethering
                         }
-                        
+
                         // PRIORITY FIX: Handle fires BEFORE structure repairs to prevent running into fire
                         // In solo mode, continuously handle fires.
                         handleFires();
-                        
+
                         // Prioritize repairing damaged masts and totems AFTER fires are handled
                         if(checkAndHandleDamagedStructures()) {
                             log("Damaged structure detected - repair handled at top level");
                             // Continue with normal execution flow to preserve activity context
                         }
-                        
+
                         handleStateLoop();
                         if(areItemsMissing())
                             return;
                         // Removed redundant call to handleTether() as it's already called in checkAndHandleIncomingWave()
-                        if(isFightingFire || TemporossPlugin.isTethered || TemporossPlugin.incomingWave)
+                        if(isFightingFire || TemporossPlugin.isTethered || TemporossPlugin.incomingWave || isRepairingTotem)
                             return;
                         handleForfeit();
 
@@ -154,8 +159,12 @@ public class TemporossScript extends Script {
 
     private void determineWorkArea() {
         if (workArea == null) {
-            Rs2NpcModel forfeitNpc = Rs2Npc.getNearestNpcWithAction("Forfeit");
-            Rs2NpcModel ammoCrate = Rs2Npc.getNearestNpcWithAction("Fill");
+            Rs2NpcModel forfeitNpc = Rs2NpcCache.getAllNpcs().filter(npc -> npc.getTransformedComposition().getActions() != null && Arrays.asList(npc.getTransformedComposition().getActions()).contains("Forfeit"))
+                    .min(Comparator.comparingInt(npc -> Rs2Player.getWorldLocation().distanceTo(npc.getWorldLocation())))
+                    .orElse(null);
+            Rs2NpcModel ammoCrate = Rs2NpcCache.getAllNpcs().filter(npc -> npc.getTransformedComposition().getActions() != null && Arrays.asList(npc.getTransformedComposition().getActions()).contains("Fill"))
+                    .min(Comparator.comparingInt(npc -> Rs2Player.getWorldLocation().distanceTo(npc.getWorldLocation())))
+                    .orElse(null);
 
             if (forfeitNpc == null || ammoCrate == null) {
                 log("Can't find forfeit NPC or ammo crate");
@@ -173,7 +182,7 @@ public class TemporossScript extends Script {
 
     private void finishGame() {
         Rs2WorldPoint playerLocation = new Rs2WorldPoint(Microbot.getClient().getLocalPlayer().getWorldLocation());
-        Rs2NpcModel exitNpc = Rs2Npc.getNpcs()
+        Rs2NpcModel exitNpc = Rs2NpcCache.getAllNpcs()
                 .filter(value -> value.getComposition() != null
                         && value.getComposition().getActions() != null
                         && Arrays.asList(value.getComposition().getActions()).contains("Leave"))
@@ -204,7 +213,7 @@ public class TemporossScript extends Script {
 
             if (Rs2Npc.interact(exitNpc, "Leave")) {
                 reset();
-                sleepUntil(() -> !isInMinigame(), 15000);
+                sleepUntil(() -> !isInMinigame(), 10000);
                 BreakHandlerScript.setLockState(false);
                 Rs2Antiban.takeMicroBreakByChance();
                 // Reset ATTACK_TEMPOROSS tracking data
@@ -231,7 +240,9 @@ public class TemporossScript extends Script {
 
     public void handleForfeit() {
         if ((INTENSITY >= 94 && state == State.THIRD_COOK)) {
-            var forfeitNpc = Rs2Npc.getNearestNpcWithAction("Forfeit");
+            var forfeitNpc = Rs2NpcCache.getAllNpcs().filter(npc -> npc.getTransformedComposition().getActions() != null && Arrays.asList(npc.getTransformedComposition().getActions()).contains("Forfeit"))
+                    .min(Comparator.comparingInt(npc -> Rs2Player.getWorldLocation().distanceTo(npc.getWorldLocation())))
+                    .orElse(null);
             if (forfeitNpc != null) {
                 if (Rs2Npc.interact(forfeitNpc, "Forfeit")) {
                     sleepUntil(() -> !isInMinigame(), 10000);
@@ -243,7 +254,9 @@ public class TemporossScript extends Script {
     }
 
     private void forfeit() {
-        var forfeitNpc = Rs2Npc.getNearestNpcWithAction("Forfeit");
+        var forfeitNpc = Rs2NpcCache.getAllNpcs().filter(npc -> npc.getTransformedComposition().getActions() != null && Arrays.asList(npc.getTransformedComposition().getActions()).contains("Forfeit"))
+                .min(Comparator.comparingInt(npc -> Rs2Player.getWorldLocation().distanceTo(npc.getWorldLocation())))
+                .orElse(null);
         if (forfeitNpc != null) {
             if (Rs2Npc.interact(forfeitNpc, "Forfeit")) {
                 sleepUntil(() -> !isInMinigame(), 10000);
@@ -286,11 +299,11 @@ public class TemporossScript extends Script {
         int bucketCount = Rs2Inventory.count(item ->
                 item.getId() == ItemID.BUCKET_EMPTY || item.getId() == ItemID.BUCKET_WATER);
         // Check if state is after INITIAL_FILL for the solo mode bucket count check
-        boolean isAfterInitialFill = state == State.THIRD_CATCH || state == State.THIRD_COOK || 
-                                     state == State.SECOND_FILL || state == State.ATTACK_TEMPOROSS || 
-                                     state == State.EMERGENCY_FILL || state == State.EMERGENCY_CATCH;
-        if ((bucketCount < temporossConfig.buckets() && state == State.INITIAL_CATCH) || bucketCount == 0 || 
-            (temporossConfig.solo() && bucketCount <= 2 && isAfterInitialFill))
+        boolean isAfterInitialFill = state == State.THIRD_CATCH || state == State.THIRD_COOK ||
+                state == State.SECOND_FILL || state == State.ATTACK_TEMPOROSS ||
+                state == State.EMERGENCY_FILL || state == State.EMERGENCY_CATCH;
+        if ((bucketCount < temporossConfig.buckets() && state == State.INITIAL_CATCH) || bucketCount == 0 ||
+                (temporossConfig.solo() && bucketCount <= 2 && isAfterInitialFill))
         {
             return true;
         }
@@ -344,11 +357,11 @@ public class TemporossScript extends Script {
         int bucketCount = Rs2Inventory.count(item ->
                 item.getId() == ItemID.BUCKET_EMPTY || item.getId() == ItemID.BUCKET_WATER);
         // Check if state is after INITIAL_FILL for the solo mode bucket count check
-        boolean isAfterInitialFill = state == State.THIRD_CATCH || state == State.THIRD_COOK || 
-                                     state == State.SECOND_FILL || state == State.ATTACK_TEMPOROSS || 
-                                     state == State.EMERGENCY_FILL || state == State.EMERGENCY_CATCH;
-        if ((bucketCount < temporossConfig.buckets() && state == State.INITIAL_CATCH) || bucketCount == 0 || 
-            (temporossConfig.solo() && bucketCount <= 2 && isAfterInitialFill))
+        boolean isAfterInitialFill = state == State.THIRD_CATCH || state == State.THIRD_COOK ||
+                state == State.SECOND_FILL || state == State.ATTACK_TEMPOROSS ||
+                state == State.EMERGENCY_FILL || state == State.EMERGENCY_CATCH;
+        if ((bucketCount < temporossConfig.buckets() && state == State.INITIAL_CATCH) || bucketCount == 0 ||
+                (temporossConfig.solo() && bucketCount <= 2 && isAfterInitialFill))
         {
             log("Buckets: " + bucketCount);
 
@@ -357,7 +370,7 @@ public class TemporossScript extends Script {
             TileObject dockBucketObj = workArea.getDockBucketCrate();
             TileObject pumpObj = workArea.getPump();
             TileObject dockPumpObj = workArea.getDockPump();
-            
+
             // Check path to main bucket crate and pump (since they're next to each other)
             boolean mainPathClear = fightFiresInPath(workArea.bucketPoint);
             if (bucketCrateObj != null) {
@@ -368,7 +381,7 @@ public class TemporossScript extends Script {
             if (pumpObj != null) {
                 mainPathClear = mainPathClear && fightFiresInPath(pumpObj.getWorldLocation());
             }
-            
+
             // Check path to dock bucket crate and dock pump (since they're next to each other)
             boolean dockPathClear = false;
             if (dockBucketObj != null) {
@@ -379,7 +392,7 @@ public class TemporossScript extends Script {
                     dockPathClear = dockPathClear && fightFiresInPath(dockPumpObj.getWorldLocation());
                 }
             }
-            
+
             // If both paths have fires, forfeit
             if (!mainPathClear && !dockPathClear)
             {
@@ -388,11 +401,11 @@ public class TemporossScript extends Script {
                 forfeit();
                 return;
             }
-            
+
             // Determine which bucket crate to use based on fire status and distance
             WorldPoint playerLoc = Rs2Player.getWorldLocation();
             TileObject nearestBucket = null;
-            
+
             if (bucketCrateObj != null && dockBucketObj != null) {
                 // If one path is clear and the other isn't, use the clear path
                 if (mainPathClear && !dockPathClear) {
@@ -411,12 +424,12 @@ public class TemporossScript extends Script {
             } else {
                 nearestBucket = bucketCrateObj != null ? bucketCrateObj : dockBucketObj;
             }
-            
+
             // Use the nearest bucket crate
             final TileObject finalNearestBucket = nearestBucket;
             sleepUntil(() -> {
                 int count = Rs2Inventory.count(item ->
-                    item.getId() == ItemID.BUCKET_EMPTY || item.getId() == ItemID.BUCKET_WATER);
+                        item.getId() == ItemID.BUCKET_EMPTY || item.getId() == ItemID.BUCKET_WATER);
                 // In INITIAL_CATCH, always collect up to configured amount
                 // In other states after INITIAL_FILL, solo mode will attempt to collect more buckets if bucket count is at 2, allows for emergency firefighting
                 return count >= temporossConfig.buckets() || (temporossConfig.solo() && count > 3 && isAfterInitialFill);
@@ -442,13 +455,13 @@ public class TemporossScript extends Script {
             if (pumpObj != null) {
                 mainPathClear = mainPathClear && fightFiresInPath(pumpObj.getWorldLocation());
             }
-            
+
             // Check path to dock pump
             boolean dockPathClear = false;
             if (dockPumpObj != null) {
                 dockPathClear = fightFiresInPath(dockPumpObj.getWorldLocation());
             }
-            
+
             // If both paths have fires, forfeit
             if (!mainPathClear && !dockPathClear) {
                 log("Could not douse fires in path to either pump");
@@ -460,7 +473,7 @@ public class TemporossScript extends Script {
             // Determine which pump to use based on fire status and distance
             WorldPoint playerLoc = Rs2Player.getWorldLocation();
             TileObject nearestPump = null;
-            
+
             if (pumpObj != null && dockPumpObj != null) {
                 // If one path is clear and the other isn't, use the clear path
                 if (mainPathClear && !dockPathClear) {
@@ -565,7 +578,7 @@ public class TemporossScript extends Script {
             }
         }
         sleepUntil(TemporossScript::isInMinigame, 30000);
-        
+
         // Set camera yaw to 0 when entering the minigame in solo mode
         if (isInMinigame() && temporossConfig.solo()) {
             Rs2Camera.setYaw(0);
@@ -607,14 +620,13 @@ public class TemporossScript extends Script {
     }
 
     public static void updateFireData(){
-        List<Rs2NpcModel> allFires = Rs2Npc
-                .getNpcs(npc -> Arrays.asList(npc.getComposition().getActions()).contains("Douse"))
-                .map(Rs2NpcModel::new)
-                .collect(Collectors.toList());
         Rs2WorldPoint playerLocation = new Rs2WorldPoint(Microbot.getClient().getLocalPlayer().getWorldLocation());
-        sortedFires = allFires.stream()
-                .filter(y -> playerLocation.distanceToPath(y.getWorldLocation()) < 35)
-                .sorted(Comparator.comparingInt(x -> playerLocation.distanceToPath(x.getWorldLocation())))
+        sortedFires = Rs2NpcCache.getAllNpcs()
+                .filter(npc -> npc.getTransformedComposition() != null && 
+                              npc.getTransformedComposition().getActions() != null && 
+                              Arrays.asList(npc.getTransformedComposition().getActions()).contains("Douse"))
+                .filter(npc -> playerLocation.distanceToPath(npc.getWorldLocation()) < 35)
+                .sorted(Comparator.comparingInt(npc -> playerLocation.distanceToPath(npc.getWorldLocation())))
                 .collect(Collectors.toList());
         TemporossOverlay.setNpcList(sortedFires);
     }
@@ -628,35 +640,36 @@ public class TemporossScript extends Script {
                 .filter(y -> playerLocation.distanceToPath(y.getWorldLocation()) < 30)
                 .sorted(Comparator.comparingInt(x -> playerLocation.distanceToPath(x.getWorldLocation())))
                 .collect(Collectors.toList());
-        
+
         // Add detected lightning shadows as dangerous tiles in Rs2Tile system
         // Duration: 9600ms (9.6seconds) to account for lightning shadow duration before it becomes fire
         for (GameObject cloud : sortedClouds) {
             Rs2Tile.addDangerousGameObjectTile(cloud, 9600);
         }
-        
+
         TemporossOverlay.setCloudList(sortedClouds);
     }
 
 
     // update ammo crate data
     public static void updateAmmoCrateData(){
-        List<Rs2NpcModel> ammoCrates = Rs2Npc
-                .getNpcs()
-                .filter(npc -> Arrays.asList(npc.getComposition().getActions()).contains("Fill"))
+        List<Rs2NpcModel> ammoCrates = Rs2NpcCache.getAllNpcs()
+                .filter(npc -> npc.getTransformedComposition() != null &&
+                              npc.getTransformedComposition().getActions() != null &&
+                              Arrays.asList(npc.getTransformedComposition().getActions()).contains("Fill"))
                 .filter(npc -> npc.getWorldLocation().distanceTo(workArea.mastPoint) <= 4)
                 .filter(npc -> !inCloud(npc.getWorldLocation(),2))
-                .map(Rs2NpcModel::new)
                 .collect(Collectors.toList());
         TemporossOverlay.setAmmoList(ammoCrates);
     }
 
     public static void updateFishSpotData(){
         // if double fishing spot is present, prioritize it
-        fishSpots = Rs2Npc.getNpcs()
+        fishSpots = Rs2NpcCache.getAllNpcs()
                 .filter(npc -> npc.getId() == NpcID.TEMPOROSS_HARPOONFISH_FISHINGSPOT_SPECIAL || npc.getId() == NpcID.TEMPOROSS_HARPOONFISH_FISHINGSPOT_SOUTH || npc.getId() == NpcID.TEMPOROSS_HARPOONFISH_FISHINGSPOT_NORTH)
                 .filter(npc -> !inCloud(npc.getRuneliteNpc().getWorldLocation(),2))
                 .filter(npc -> npc.getWorldLocation().distanceTo(workArea.rangePoint) <= 20)
+                .filter(npc -> npc.getTransformedComposition().isInteractible())
                 .sorted(Comparator
                         .comparingInt(npc -> npc.getId() == NpcID.TEMPOROSS_HARPOONFISH_FISHINGSPOT_SPECIAL ? 0 : 1))
                 .collect(Collectors.toList());
@@ -667,7 +680,7 @@ public class TemporossScript extends Script {
         if (workArea == null) {
             return;
         }
-        
+
         // Check for broken totem at the totem location
         TileObject totem = Rs2GameObject.findGameObjectByLocation(workArea.totemPoint);
         if (totem != null && (totem.getId() == ObjectID.TEMPOROSS_TOTEM_NORTH_BROKEN || totem.getId() == ObjectID.TEMPOROSS_TOTEM_SOUTH_BROKEN)) {
@@ -676,12 +689,12 @@ public class TemporossScript extends Script {
             cachedBrokenTotem = null;
         }
     }
-    
+
     public static void updateMastData() {
         if (workArea == null) {
             return;
         }
-        
+
         // Check for broken mast at the mast location
         TileObject mast = Rs2GameObject.findGameObjectByLocation(workArea.mastPoint);
         if (mast != null && (mast.getId() == ObjectID.TEMPOROSS_MAST_BOTTOM_WEST_BROKEN || mast.getId() == ObjectID.TEMPOROSS_MAST_BOTTOM_EAST_BROKEN)) {
@@ -703,7 +716,7 @@ public class TemporossScript extends Script {
     public static void checkTargetFishReached() {
         // First check if we should transition to EMERGENCY_CATCH state
         if (temporossConfig != null && temporossConfig.solo()
-            && ENERGY >= 11) {
+                && ENERGY >= 11) {
 
             // Call shouldTransitionToEmergencyCatch to check if we should transition to EMERGENCY_CATCH
             EnergyStateManager.shouldTransitionToEmergencyCatch();
@@ -722,21 +735,21 @@ public class TemporossScript extends Script {
 
         if (state != null && state.isComplete()) {
             isFilling = false;
-            
+
             // Get the next state using the getNext() method
             State nextState = state.getNext();
-            
+
             // Simple logging for SECOND_COOK transitions in solo mode
             if (state == State.SECOND_COOK && State.isSolo()) {
                 log("In solo mode, cooked fish: " + State.getCookedFish() + ", proceeding to INITIAL_FILL");
             }
-            
+
             // Reset isTransitioningToEmergencyFill when transitioning from EMERGENCY_FILL to another state
             if (state == State.EMERGENCY_FILL) {
                 EnergyStateManager.resetEmergencyFillTransition();
                 log("Transitioning from EMERGENCY_FILL to " + nextState);
             }
-            
+
             state = nextState;
         }
     }
@@ -755,7 +768,7 @@ public class TemporossScript extends Script {
             isFightingFire = false;
             return;
         }
-        
+
         // Special handling for SECOND_COOK state - finish cooking before handling fires
         // But allow fire handling when cooking is complete and clouds are present (so clouds can turn into fires and be handled)
         if (state == State.SECOND_COOK && !state.isComplete()) {
@@ -763,7 +776,7 @@ public class TemporossScript extends Script {
             isFightingFire = false;
             return;
         }
-        
+
         // In SECOND_COOK state when cooking is complete, allow fire handling if clouds are present
         // This ensures that when clouds turn into fires, they can be handled properly
         if (state == State.SECOND_COOK && state.isComplete() && !sortedClouds.isEmpty()) {
@@ -772,15 +785,15 @@ public class TemporossScript extends Script {
                 log("SECOND_COOK state: Cooking complete and clouds present, allowing fire handling for cloud-to-fire transitions");
             }
         }
-        
+
         // Skip fire handling if both energy and essence are low (solo mode only)
         // BUT override this skip if player is within 7 tiles of any fire
         if (temporossConfig.solo() && ENERGY <= 10 && ESSENCE <= 35) {
             // Check if player is within 7 tiles of any fire - override skip condition if true
             WorldPoint playerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
-            boolean nearbyFire = !sortedFires.isEmpty() && sortedFires.stream().anyMatch(fire -> 
-                playerLocation.distanceTo(fire.getWorldLocation()) <= 7);
-            
+            boolean nearbyFire = !sortedFires.isEmpty() && sortedFires.stream().anyMatch(fire ->
+                    playerLocation.distanceTo(fire.getWorldLocation()) <= 7);
+
             if (nearbyFire) {
                 log("Solo mode: Energy (" + ENERGY + "%) and essence (" + ESSENCE + "%) are low, but fire within 5 tiles detected - forcing fire handling");
             } else {
@@ -790,15 +803,15 @@ public class TemporossScript extends Script {
             }
         }
         isFightingFire = true;
-        
+
         // Get player location for distance calculations
         WorldPoint playerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
-        
+
         // Sort fires by distance to player
         List<Rs2NpcModel> prioritizedFires = new ArrayList<>(sortedFires);
-        prioritizedFires.sort(Comparator.comparingInt(fire -> 
-            playerLocation.distanceTo(fire.getWorldLocation())));
-        
+        prioritizedFires.sort(Comparator.comparingInt(fire ->
+                playerLocation.distanceTo(fire.getWorldLocation())));
+
         for (Rs2NpcModel fire : prioritizedFires) {
 
             // Special handling for INITIAL_FILL and EMERGENCY_FILL states - don't skip fires even when filling
@@ -807,7 +820,7 @@ public class TemporossScript extends Script {
                 log("Filling (not in INITIAL_FILL or EMERGENCY_FILL), skipping fire");
                 return;
             }
-            
+
             // For INITIAL_FILL state, skip fire handling when filling to avoid interrupting the process
             if (state == State.INITIAL_FILL) {
                 // In solo mode with fish in inventory (less than 9), prioritize filling first
@@ -848,16 +861,16 @@ public class TemporossScript extends Script {
                     }
                 }
             }
-            
+
             if (Rs2Player.isInteracting()) {
                 if (Objects.equals(Rs2Player.getInteracting(), fire)) {
                     return;
                 }
             }
-            
+
             if (Rs2Npc.interact(fire, "Douse")) {
                 log("Dousing fire");
-                sleepUntil(() -> !Rs2Player.isInteracting(), 1500);
+                sleepUntil(() -> !Rs2Player.isInteracting(), 1800);
                 return;
             }
         }
@@ -885,18 +898,25 @@ public class TemporossScript extends Script {
             return; // Exit to prevent mast repair while dodging
         }
 
+        WorldPoint mastLocation = damagedMast.getWorldLocation();
+
+        // Check for lightning shadow at the mast location - abort repair if found
+        if (inCloud(mastLocation, 1)) {
+            log("Lightning shadow detected at mast location - deferring mast repair until shadow clears");
+            return; // Exit to prevent mast repair while lightning shadow is present
+        }
+
         // Check if within range and have hammer if needed (or using Imcando hammer off-hand)
         if (Microbot.getClient().getLocalPlayer().getWorldLocation().distanceTo(damagedMast.getWorldLocation()) <= 6
                 && (!temporossConfig.hammer() || temporossConfig.imcandoHammerOffHand() || Rs2Inventory.contains("Hammer"))) {
 
             // SOLO MODE ONLY: Special handling for lightning shadow - wait for it to become fire and douse it
             if (temporossConfig.solo()) {
-                WorldPoint mastLocation = damagedMast.getWorldLocation();
-                
+
                 // Check for lightning shadow at the mast location using existing inCloud method
                 if (inCloud(mastLocation, 2)) {
                     log("Lightning shadow detected near mast - waiting for it to become fire");
-                    
+
                     // Wait for lightning shadow to transform into fire NPC (up to 5 seconds)
                     boolean fireAppeared = sleepUntil(() -> {
                         Rs2NpcModel fire = sortedFires.stream()
@@ -905,14 +925,14 @@ public class TemporossScript extends Script {
                                 .orElse(null);
                         return fire != null;
                     }, 5000);
-                    
+
                     if (fireAppeared) {
                         // Find and douse the fire that appeared from lightning shadow using existing sortedFires
                         Rs2NpcModel lightningFire = sortedFires.stream()
                                 .filter(npc -> mastLocation.distanceTo(npc.getWorldLocation()) <= 3)
                                 .findFirst()
                                 .orElse(null);
-                        
+
                         if (lightningFire != null) {
                             log("Lightning shadow became fire - dousing before mast repair");
                             if (Rs2Npc.interact(lightningFire, "Douse")) {
@@ -925,7 +945,6 @@ public class TemporossScript extends Script {
             }
 
             // PRIORITY: Check for fires at the mast location first - if fire is there, handle it before repairing mast
-            WorldPoint mastLocation = damagedMast.getWorldLocation();
             Rs2NpcModel nearbyFire = sortedFires.stream()
                     .filter(fire -> mastLocation.distanceTo(fire.getWorldLocation()) <= 3) // Fire within 3 tiles of mast
                     .findFirst()
@@ -943,6 +962,7 @@ public class TemporossScript extends Script {
             // Store current state to return to
             State previousState = state;
 
+
             // Force stop current activity
             if (Rs2Player.isInteracting()) {
                 // Move one tile away to break interaction
@@ -951,18 +971,12 @@ public class TemporossScript extends Script {
                 Rs2Walker.walkTo(breakPoint);
                 sleepUntil(() -> !Rs2Player.isInteracting(), 2000);
             }
-            
-           // Check if player is still tethered - cannot repair while tethered
-            if (TemporossPlugin.isTethered) {
-                log("Cannot repair mast while tethered - waiting for full untethering");
-                return;
-            }
-            
-            sleep(300);
+
+            // UNTETHERING CHECK AND WAIT REMOVED - Now handled centrally in checkAndHandleDamagedStructures()
             if (Rs2GameObject.interact(damagedMast, "Repair")) {
                 log("Prioritizing mast repair (after fire cleared)");
                 Rs2Player.waitForXpDrop(Skill.CONSTRUCTION, 2500);
-                
+
                 // Check if a wave is coming and we're not tethered
                 if (TemporossPlugin.incomingWave && !TemporossPlugin.isTethered) {
                     log("Wave incoming after mast repair - tethering");
@@ -996,22 +1010,31 @@ public class TemporossScript extends Script {
                 Rs2Walker.walkTo(breakPoint);
                 sleepUntil(() -> !Rs2Player.isInteracting(), 2000);
             }
-            
-           // Check if player is still tethered - cannot repair while tethered
-            if (TemporossPlugin.isTethered) {
-                log("Cannot repair totem while tethered - waiting for full untethering");
-                return;
-            }
-            
-            sleep(300);
+
+            // UNTETHERING CHECK AND WAIT REMOVED - Now handled centrally in checkAndHandleDamagedStructures()
             if (Rs2GameObject.interact(damagedTotem, "Repair")) {
                 log("Prioritizing totem repair");
                 // Set the flag to indicate we're repairing a totem
                 isRepairingTotem = true;
-                Rs2Player.waitForXpDrop(Skill.CONSTRUCTION, 2500);
+                
+                // Wait longer and with multiple checks
+                long startTime = System.currentTimeMillis();
+                while (isRepairingTotem && (System.currentTimeMillis() - startTime) < 5000) {
+                    if (Rs2Player.waitForXpDrop(Skill.CONSTRUCTION, 2500)) {
+                        log("Totem repair completed - XP gained");
+                        break;
+                    }
+                    // Check if totem is actually repaired
+                    if (workArea.getBrokenTotem() == null) {
+                        log("Totem repair completed - no more broken totems");
+                        break;
+                    }
+                    sleep(500);
+                }
+                
                 // Clear the flag after repair is complete
                 isRepairingTotem = false;
-                
+
                 // Check if a wave is coming and we're not tethered
                 if (TemporossPlugin.incomingWave && !TemporossPlugin.isTethered) {
                     log("Wave incoming after totem repair - tethering");
@@ -1051,12 +1074,12 @@ public class TemporossScript extends Script {
     private boolean waitForWalkingWithWaveCheck(int timeout) {
         long startTime = System.currentTimeMillis();
         while (Rs2Player.isMoving() && (System.currentTimeMillis() - startTime) < timeout) {
-            // Check for incoming waves every 100ms during walking
+            // Check for incoming waves every 600ms during walking
             if (checkAndHandleIncomingWave()) {
                 log("Wave detected during walking - tethering took priority");
                 return true; // Wave was handled, consider this successful
             }
-            sleep(100);
+            sleep(600);
         }
         return !Rs2Player.isMoving(); // Return true if walking completed
     }
@@ -1070,70 +1093,85 @@ public class TemporossScript extends Script {
     private boolean sleepUntilWithWaveCheck(BooleanSupplier condition, int timeout) {
         long startTime = System.currentTimeMillis();
         while (!condition.getAsBoolean() && (System.currentTimeMillis() - startTime) < timeout) {
-            // Check for incoming waves every 100ms during waiting
+            // Check for incoming waves every 600ms during waiting
             if (checkAndHandleIncomingWave()) {
                 log("Wave detected during sleepUntil - tethering took priority");
                 return true; // Wave was handled, consider this successful
             }
-            sleep(100);
+            sleep(600);
         }
         return condition.getAsBoolean(); // Return true if condition was met
     }
-    
+
     /**
      * Checks if there are damaged structures (mast or totem) and handles repairs immediately if needed
      * This method can be called from any point in the script to interrupt current activity
      * @return true if a repair was handled, false otherwise
      */
     public boolean checkAndHandleDamagedStructures() {
+        // Prevent rapid repair attempts
+        if (System.currentTimeMillis() - lastRepairAttempt < REPAIR_COOLDOWN) {
+            return false;
+        }
+        
+        // CENTRALIZED UNTETHERING CHECK - Handle this once for all structures
+        if (TemporossPlugin.isTethered) {
+            log("Cannot repair structures while tethered - waiting for full untethering");
+            return false;
+        }
+        
+        // Wait 2 seconds after untethering to ensure state has stabilized
+        sleep(2000);
+        
         // Check for damaged mast
         TileObject damagedMast = workArea.getBrokenMast();
         if (damagedMast != null) {
             // Check if within range and have hammer if needed
             if (Microbot.getClient().getLocalPlayer().getWorldLocation().distanceTo(damagedMast.getWorldLocation()) <= 6
                     && (!temporossConfig.hammer() || temporossConfig.imcandoHammerOffHand() || Rs2Inventory.contains("Hammer"))) {
-                
+
                 log("PRIORITY: Damaged mast detected - dropping current activity to repair");
-                
+
                 // Store current state to return to
                 State previousState = state;
-                
+
                 // Call the existing repair method
                 handleDamagedMast();
-                
+
                 // Restore previous state if it was changed
                 if (state != previousState) {
                     state = previousState;
                 }
-                
+
                 return true;
             }
         }
-        
+
         // Check for damaged totem
         TileObject damagedTotem = workArea.getBrokenTotem();
         if (damagedTotem != null) {
             // Check if within range and have hammer if needed
             if (Microbot.getClient().getLocalPlayer().getWorldLocation().distanceTo(damagedTotem.getWorldLocation()) <= 6
                     && (!temporossConfig.hammer() || temporossConfig.imcandoHammerOffHand() || Rs2Inventory.contains("Hammer"))) {
-                
+
+                lastRepairAttempt = System.currentTimeMillis();
                 log("PRIORITY: Damaged totem detected - dropping current activity to repair");
-                
+
                 // Store current state to return to
                 State previousState = state;
-                
+
                 // Call the existing repair method
                 handleDamagedTotem();
-                
+
                 // Restore previous state if it was changed
                 if (state != previousState) {
                     state = previousState;
                 }
-                
+
                 return true;
             }
         }
-        
+
         return false;
     }
 
@@ -1167,13 +1205,6 @@ public class TemporossScript extends Script {
                         log("Tether interaction did not flip state; will retry on next tick");
                         return;
                     }
-                    
-                    // DELAYED REPAIR: Check for damaged structures after 2-second delay following tethering
-                    // This fixes the issue where game doesn't allow repairs while still tethered
-                    log("Waiting 2 seconds before checking for damaged structures after tethering");
-                    sleep(2000); // 2-second delay to allow game to fully register tethering/untethering before attempting repairs
-                    log("Checking for damaged structures after tethering delay");
-                    checkAndHandleDamagedStructures();
                 }
             }
             if (action.equals("Untether")) {
@@ -1195,36 +1226,37 @@ public class TemporossScript extends Script {
                     // Force the state to match so we don't get stuck in a loop
                     TemporossPlugin.isTethered = TemporossPlugin.incomingWave;
                 }
-                
+
                 // After untethering, ensure we reset the incomingWave flag to prevent getting stuck
                 if (TemporossPlugin.isTethered == TemporossPlugin.incomingWave) {
                     log("Untethering complete, resetting incomingWave flag");
                     TemporossPlugin.incomingWave = false;
-                    
+
                     // If we have a saved state from wave hit, restore it
                     if (TemporossPlugin.wasHitByWave && TemporossPlugin.previousState != null) {
                         log("Restoring previous state after untethering: " + TemporossPlugin.previousState);
-                        
+
                         // Reset all state-specific flags to ensure the bot doesn't get stuck
+                        isFilling = false;
                         isFightingFire = false;
                         isRepairingTotem = false;
-                        
+
                         // Special handling for FILL states and COOK states hit by waves
                         // If the previous state was any FILL state, preserve the isFilling flag
                         // This ensures the bot continues filling the ammo crate after being hit by a wave
-                        if (TemporossPlugin.previousState == State.EMERGENCY_FILL || 
-                            TemporossPlugin.previousState == State.SECOND_FILL || 
-                            TemporossPlugin.previousState == State.INITIAL_FILL) {
+                        if (TemporossPlugin.previousState == State.EMERGENCY_FILL ||
+                                TemporossPlugin.previousState == State.SECOND_FILL ||
+                                TemporossPlugin.previousState == State.INITIAL_FILL) {
                             isFilling = true;
                             log("Preserving isFilling flag for " + TemporossPlugin.previousState + " state after wave hit");
-                        } 
+                        }
                         // Special handling for COOK states hit by waves - transition to appropriate CATCH states
                         // Since fish is lost when hit by wave during cooking, bot should go back to catching fish
-                        else if (TemporossPlugin.previousState == State.SECOND_COOK || 
-                                 TemporossPlugin.previousState == State.THIRD_COOK) {
+                        else if (TemporossPlugin.previousState == State.SECOND_COOK ||
+                                TemporossPlugin.previousState == State.THIRD_COOK) {
                             isFilling = false;
                             log("Bot was hit by wave during " + TemporossPlugin.previousState + " - transitioning to CATCH state");
-                            
+
                             // Map cooking states to appropriate catch states since fish is lost
                             if (TemporossPlugin.previousState == State.SECOND_COOK) {
                                 // SECOND_COOK loses fish, need to go back to SECOND_CATCH to get fish again
@@ -1235,26 +1267,26 @@ public class TemporossScript extends Script {
                                 state = State.THIRD_CATCH;
                                 log("Transitioning from THIRD_COOK to THIRD_CATCH after wave hit");
                             }
-                            
+
                             // Reset the wave hit state since we've handled the transition
                             TemporossPlugin.previousState = null;
                             TemporossPlugin.wasHitByWave = false;
                             TemporossPlugin.lastWaveHitTime = 0;
                             return; // Early return to prevent normal state restoration
-                        } 
+                        }
                         // Special handling for CATCH states hit by waves
                         // When hit by wave during catching, fish is lost so bot should continue with same CATCH state
-                        else if (TemporossPlugin.previousState == State.INITIAL_CATCH || 
-                                 TemporossPlugin.previousState == State.SECOND_CATCH || 
-                                 TemporossPlugin.previousState == State.THIRD_CATCH || 
-                                 TemporossPlugin.previousState == State.EMERGENCY_CATCH) {
+                        else if (TemporossPlugin.previousState == State.INITIAL_CATCH ||
+                                TemporossPlugin.previousState == State.SECOND_CATCH ||
+                                TemporossPlugin.previousState == State.THIRD_CATCH ||
+                                TemporossPlugin.previousState == State.EMERGENCY_CATCH) {
                             isFilling = false;
                             log("Bot was hit by wave during " + TemporossPlugin.previousState + " - continuing with same CATCH state");
-                            
+
                             // Continue with the same catch state since fish was lost and we need to catch again
                             state = TemporossPlugin.previousState;
                             log("Continuing with " + TemporossPlugin.previousState + " after wave hit");
-                            
+
                             // Reset the wave hit state since we've handled the transition
                             TemporossPlugin.previousState = null;
                             TemporossPlugin.wasHitByWave = false;
@@ -1264,9 +1296,9 @@ public class TemporossScript extends Script {
                         else {
                             isFilling = false;
                         }
-                        
+
                         log("Reset state flags before restoring state");
-                        
+
                         // Restore the previous state
                         state = TemporossPlugin.previousState;
                         TemporossPlugin.previousState = null;
@@ -1279,8 +1311,9 @@ public class TemporossScript extends Script {
     }
 
     private void handleStateLoop() {
-        
-        temporossPool = Rs2Npc.getNpcs().filter(npc -> npc.getId() == NpcID.TEMPOROSS_P2_FISHINGSPOT).min(Comparator.comparingInt(x -> workArea.spiritPoolPoint.distanceTo(x.getWorldLocation()))).orElse(null);
+
+        temporossPool = Rs2NpcCache.getAllNpcs().filter(npc -> npc.getId() == NpcID.TEMPOROSS_P2_FISHINGSPOT).min(Comparator.comparingInt(x -> workArea.spiritPoolPoint.distanceTo(x.getWorldLocation()))).orElse(null);
+        updateFishSpotData();
         boolean doubleFishingSpot = !fishSpots.isEmpty() && fishSpots.get(0).getId() == NpcID.TEMPOROSS_HARPOONFISH_FISHINGSPOT_SPECIAL;
 
         // Check if target fish is reached for solo mode
@@ -1292,8 +1325,8 @@ public class TemporossScript extends Script {
         }
 
         if ((TemporossScript.state == State.THIRD_CATCH || TemporossScript.state == State.EMERGENCY_FILL)
-            && TemporossScript.ENERGY <= ( isFilling ? 0 : 5)
-            && !temporossConfig.solo()) {
+                && TemporossScript.ENERGY <= ( isFilling ? 0 : 5)
+                && !temporossConfig.solo()) {
             log("Very low energy, better wait on Tempoross pool");
             TemporossScript.state = State.ATTACK_TEMPOROSS;
             return;
@@ -1312,37 +1345,45 @@ public class TemporossScript extends Script {
         }
 
         if (((TemporossScript.ENERGY < 30 && State.getAllFish() > 6)
-            || (TemporossScript.ENERGY < 50 && State.getAllFish() >= State.getTotalAvailableFishSlots()))
-            && !temporossConfig.solo()
-            && TemporossScript.state != State.ATTACK_TEMPOROSS) {
+                || (TemporossScript.ENERGY < 50 && State.getAllFish() >= State.getTotalAvailableFishSlots()))
+                && !temporossConfig.solo()
+                && TemporossScript.state != State.ATTACK_TEMPOROSS) {
             log("Low energy, going for emergency fill");
             TemporossScript.state = State.EMERGENCY_FILL;
         }
 
     }
 
-    
     private void handleMainLoop() {
         Rs2Camera.setZoom(0); // Set to maximum zoom distance
         Rs2Camera.setPitch(383); // Set to maximum pitch (looking straight down)
-        
-        // PRIORITY CHECK: Always check if player is standing on dangerous tile (lightning shadow) and dodge if necessary
+
+        // PRIORITY CHECK: Always check if player is standing on or near dangerous tile (lightning shadow) and dodge if necessary
         WorldPoint playerLocation = Rs2Player.getWorldLocation();
-        if (Rs2Tile.getDangerousGraphicsObjectTiles().containsKey(playerLocation)) {
-            log("Lightning shadow detected at player position - dodging to safe location using Rs2Tile");
-            WorldPoint safeTile = Rs2Tile.getSafeTile();
-            if (safeTile != null) {
-                Rs2Walker.walkFastCanvas(safeTile);
-                sleepUntil(() -> !Rs2Player.isMoving() && !playerLocation.equals(Rs2Player.getWorldLocation()), 3000);
+        Map<WorldPoint, Integer> dangerousTiles = Rs2Tile.getDangerousGraphicsObjectTiles();
+
+        // Check if player is on OR adjacent to a dangerous tile (proactive detection)
+        boolean playerInDanger = dangerousTiles.keySet().stream()
+                .anyMatch(dangerousTile -> dangerousTile.equals(playerLocation) ||
+                        dangerousTile.distanceTo(playerLocation) <= 1);
+
+        if (playerInDanger) {
+            log("Lightning shadow detected at or near player position - dodging to safe location");
+            WorldPoint safeTile = findSafeTileForTempoross(playerLocation, dangerousTiles.keySet());
+            Rs2Walker.walkFastCanvas(safeTile);
+            sleepUntil(() -> !Rs2Player.isMoving(), 3000);
+
+            // Verify we actually moved to safety
+            if (Rs2Player.getWorldLocation().equals(safeTile)) {
                 log("Successfully moved to safe tile: " + safeTile);
             } else {
-                log("No safe tile found, using fallback walkToSafePoint");
-                walkToSafePoint();
-                sleepUntil(() -> !Rs2Player.isMoving(), 3000);
+                log("Failed to reach safe tile, trying again...");
+                Rs2Walker.walkFastCanvas(safeTile);
+                sleepUntil(() -> !Rs2Player.isMoving(), 2000);
             }
             return; // Exit to prevent other actions while dodging
         }
-        
+
         // PRIORITY CHECK: If a wave is incoming and we're not tethered, handle tethering immediately
         if (checkAndHandleIncomingWave()) {
             log("Successfully tethered in handleMainLoop, will continue with state: " + state);
@@ -1391,20 +1432,26 @@ public class TemporossScript extends Script {
                     }
                 }
 
+                updateFishSpotData();
                 var fishSpot = fishSpots.stream()
                         .findFirst()
                         .orElse(null);
 
-                if (fishSpot != null) {
+                if (fishSpot != null && !fishSpots.isEmpty()) {
                     // In mass world mode, clear fires along the path to the fish spot before interacting.
                     if (!temporossConfig.solo()) {
                         if(!fightFiresInPath(fishSpot.getWorldLocation()))
                             return;
                     }
-                    if (Rs2Player.isInteracting() && Rs2Player.getInteracting() != null) {
-                        Actor interactingNpc = Microbot.getClient().getLocalPlayer().getInteracting();
-                        if (interactingNpc.equals(fishSpot.getActor())) {
-                            return;
+                    // Check if already interacting with the optimal fishing spot
+                    if (Rs2Player.isInteracting()) {
+                        Actor currentTarget = Rs2Player.getInteracting();
+                        if (currentTarget != null && currentTarget instanceof NPC) {
+                            NPC targetNpc = (NPC) currentTarget;
+                            // Only return if already interacting with the current best spot
+                            if (targetNpc.getId() == fishSpot.getId()) {
+                                return;
+                            }
                         }
                     }
                     Rs2Camera.turnTo(fishSpot);
@@ -1439,8 +1486,8 @@ public class TemporossScript extends Script {
                 isFilling = false;
                 int rawFishCount = Rs2Inventory.count(ItemID.TEMPOROSS_RAW_HARPOONFISH);
                 TileObject range = workArea != null ? workArea.getRange() : null;
-                
-                
+
+
                 if (range != null && rawFishCount > 0) {
                     if(Rs2Player.isInteracting()) {
                         if (Objects.equals(Rs2Player.getInteracting(), range))
@@ -1468,7 +1515,7 @@ public class TemporossScript extends Script {
             case EMERGENCY_FILL:
             case SECOND_FILL:
             case INITIAL_FILL:
-                
+
                 //If inventory has no fish in SECOND_FILL state, immediately transition to ATTACK_TEMPOROSS (SOLO MODE ONLY), detection was to slow previously or stalled sometimes
                 if (state == State.SECOND_FILL && temporossConfig.solo() && State.getAllFish() == 0) {
                     log("SECOND_FILL: Inventory empty of fish - instantly transitioning to ATTACK_TEMPOROSS (solo mode)");
@@ -1485,16 +1532,16 @@ public class TemporossScript extends Script {
                         return;
                     }
                 }
-                
+
                 // For SECOND_FILL state, hover over tempoross pool if available to allow quicker transition to ATTACK_TEMPOROSS
                 if (state == State.SECOND_FILL && temporossPool != null) {
                     log("SECOND_FILL: Hovering over Tempoross pool for quicker transition to ATTACK_TEMPOROSS");
                     Rs2Npc.hoverOverActor(temporossPool);
                 }
-                
+
                 // For solo mode in INITIAL_FILL state, prioritize filling first
                 // No need to wait for clouds to turn into fire
-                
+
                 List<Rs2NpcModel> ammoCrates = Rs2Npc
                         .getNpcs()
                         .filter(npc -> npc.getComposition() != null && npc.getComposition().getActions() != null && Arrays.asList(npc.getComposition().getActions()).contains("Fill"))
@@ -1517,36 +1564,36 @@ public class TemporossScript extends Script {
                     // Check if clouds/lightning shadows are present and we're not already filling
                     if (!sortedClouds.isEmpty() && !isFilling) {
                         log("INITIAL_FILL: Clouds/lightning shadows detected - waiting for them to turn into fire");
-                        
+
                         // Find the closest cloud to wait next to
                         GameObject closestCloud = sortedClouds.stream()
-                                .min(Comparator.comparingInt(cloud -> 
-                                    Microbot.getClient().getLocalPlayer().getWorldLocation().distanceTo(cloud.getWorldLocation())))
+                                .min(Comparator.comparingInt(cloud ->
+                                        Microbot.getClient().getLocalPlayer().getWorldLocation().distanceTo(cloud.getWorldLocation())))
                                 .orElse(null);
-                        
+
                         if (closestCloud != null) {
                             WorldPoint currentPlayerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
                             int distanceToCloud = currentPlayerLocation.distanceTo(closestCloud.getWorldLocation());
-                            
+
                             // Move next to the cloud if not already close
                             if (distanceToCloud > 2) {
                                 log("Moving next to cloud at " + closestCloud.getWorldLocation() + " to wait for fire spawn");
-                                
+
                                 // Find a safe position adjacent to the cloud (not inside it)
                                 WorldPoint cloudLocation = closestCloud.getWorldLocation();
                                 WorldPoint safePosition = null;
-                                
+
                                 // Check positions around the cloud to find a safe spot
                                 for (int dx = -1; dx <= 1; dx++) {
                                     for (int dy = -1; dy <= 1; dy++) {
                                         if (dx == 0 && dy == 0) continue; // Skip the cloud center
-                                        
+
                                         WorldPoint candidatePos = new WorldPoint(
-                                            cloudLocation.getX() + dx,
-                                            cloudLocation.getY() + dy,
-                                            cloudLocation.getPlane()
+                                                cloudLocation.getX() + dx,
+                                                cloudLocation.getY() + dy,
+                                                cloudLocation.getPlane()
                                         );
-                                        
+
                                         // Check if this position is not inside any cloud
                                         if (!inCloud(candidatePos, 0)) {
                                             safePosition = candidatePos;
@@ -1555,10 +1602,10 @@ public class TemporossScript extends Script {
                                     }
                                     if (safePosition != null) break;
                                 }
-                                
+
                                 if (safePosition != null) {
-                                    log("Walking to safe position next to cloud: " + safePosition);
-                                    Rs2Walker.walkTo(safePosition);
+                                    log("Walking to safe position next to cloud: " + safePosition + " (converted: " + getTrueWorldPoint(safePosition) + ")");
+                                    Rs2Walker.walkTo(getTrueWorldPoint(safePosition));
                                     waitForWalkingWithWaveCheck(3000);
                                 } else {
                                     log("No safe position found adjacent to cloud, walking to safe point");
@@ -1567,7 +1614,7 @@ public class TemporossScript extends Script {
                             } else {
                                 log("Already positioned near cloud, waiting for it to turn into fire");
                             }
-                            
+
                             // Wait by the cloud instead of filling ammo crate
                             return;
                         }
@@ -1592,6 +1639,30 @@ public class TemporossScript extends Script {
                     return;
                 }
 
+                // Lightning Stun: Switch ammo crate after lightning stun if we were filling
+                if (TemporossPlugin.lightningHit && isFilling) {
+                    long elapsed = System.currentTimeMillis() - TemporossPlugin.lastLightningHitMs;
+                    if (elapsed < 2000) {
+                        log("Lightning stun active (" + elapsed + "ms), waiting to switch ammo crate...");
+                        return;
+                    }
+                    // Choose the furthest ammo crate to ensure we switch to the other one
+                    Rs2NpcModel otherCrate = ammoCrates.stream()
+                            .max(Comparator.comparingInt(value -> new Rs2WorldPoint(value.getWorldLocation())
+                                    .distanceToPath(Microbot.getClient().getLocalPlayer().getWorldLocation())))
+                            .orElse(null);
+                    if (otherCrate != null) {
+                        log("Lightning hit while filling - switching to the other ammo crate");
+                        Rs2Camera.turnTo(otherCrate.getActor());
+                        Rs2Npc.interact(otherCrate, "Fill");
+                        waitForWalkingWithWaveCheck(5000);
+                        isFilling = true;
+                    }
+                    // Reset flag after
+                    TemporossPlugin.lightningHit = false;
+                    return;
+                }
+
                 if (inCloud(Microbot.getClient().getLocalPlayer().getLocalLocation())) {
                     // For all modes and states, switch to furthest ammo crate when in cloud
                     log("In cloud, switching to furthest ammo crate");
@@ -1608,10 +1679,10 @@ public class TemporossScript extends Script {
                 if (state == State.INITIAL_FILL && temporossConfig.solo() && ammoCrates.size() > 1) {
                     // Check each ammo crate for clouds/fires above it
                     List<Rs2NpcModel> safeAmmoCrates = new ArrayList<>();
-                    
+
                     for (Rs2NpcModel crate : ammoCrates) {
                         boolean hasFireOrCloud = false;
-                        
+
                         // Check for clouds above this ammo crate
                         for (GameObject cloud : sortedClouds) {
                             if (cloud.getWorldLocation().distanceTo(crate.getWorldLocation()) <= 1) {
@@ -1626,7 +1697,7 @@ public class TemporossScript extends Script {
                             safeAmmoCrates.add(crate);
                         }
                     }
-                    
+
                     // If we found safe ammo crates, use only those
                     if (!safeAmmoCrates.isEmpty()) {
                         log("Using ammo crate without fire/cloud above it");
@@ -1635,7 +1706,7 @@ public class TemporossScript extends Script {
                         log("All ammo crates have fire/cloud above them, using closest one");
                     }
                 }
-                
+
                 var ammoCrate = ammoCrates.stream()
                         .min(Comparator.comparingInt(value -> new Rs2WorldPoint(value.getWorldLocation()).distanceToPath(Microbot.getClient().getLocalPlayer().getWorldLocation()))).orElse(null);
 
@@ -1802,16 +1873,46 @@ public class TemporossScript extends Script {
         return sortedClouds.stream().anyMatch(cloud -> finalArea.contains(cloud.getWorldLocation()));
     }
 
+    /**
+     * Finds a safe tile for Tempoross
+     */
+    private WorldPoint findSafeTileForTempoross(WorldPoint playerLocation, Collection<WorldPoint> dangerousTiles) {
+        List<WorldPoint> nearbyTiles = new ArrayList<>();
+
+        int x = playerLocation.getX();
+        int y = playerLocation.getY();
+        int plane = playerLocation.getPlane();
+
+        // Generate tiles in a 5x5 grid around player (-2 to +2 in both X and Y directions)
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dy = -2; dy <= 2; dy++) {
+                WorldPoint candidate = new WorldPoint(x + dx, y + dy, plane);
+
+                // Check if tile is walkable and not dangerous
+                if (Rs2Tile.isWalkable(candidate) &&
+                        !dangerousTiles.contains(candidate)) {
+                    nearbyTiles.add(candidate);
+                }
+            }
+        }
+
+        // Return closest safe tile to minimize movement distance
+        return nearbyTiles.stream()
+                .min(Comparator.comparingInt(tile -> tile.distanceTo(playerLocation)))
+                .orElse(null);
+    }
+
+
     // method to fight fires that is in a path to a location
     public boolean fightFiresInPath(WorldPoint location) {
         // Skip fire handling if both energy and essence are low (solo mode only)
         // BUT override this skip if player is within 7 tiles of any fire
         if (temporossConfig.solo() && ENERGY <= 10 && ESSENCE <= 35) {
-            // Check if player is within 7 tiles of any fire - override skip condition if true
+            // Check if player is within 7 tiles of any fire - override skip condition if true, rare occasion on fighting fire at last phase
             WorldPoint playerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
-            boolean nearbyFire = !sortedFires.isEmpty() && sortedFires.stream().anyMatch(fire -> 
-                playerLocation.distanceTo(fire.getWorldLocation()) <= 7);
-            
+            boolean nearbyFire = !sortedFires.isEmpty() && sortedFires.stream().anyMatch(fire ->
+                    playerLocation.distanceTo(fire.getWorldLocation()) <= 7);
+
             if (nearbyFire) {
                 log("Solo mode: Energy (" + ENERGY + "%) and essence (" + ESSENCE + "%) are low, but fire within 5 tiles detected - forcing fire handling");
             } else {
@@ -1840,13 +1941,13 @@ public class TemporossScript extends Script {
                     if (state == State.INITIAL_FILL) {
                         // Check if fire is within 5 tiles of any point on the path
                         // This ensures we handle fires that might be near our destination
-                        return walkerPath.stream().anyMatch(pathPoint -> 
-                            fire.getWorldLocation().distanceTo(pathPoint) <= 5);
+                        return walkerPath.stream().anyMatch(pathPoint ->
+                                fire.getWorldLocation().distanceTo(pathPoint) <= 5);
                     } else {
                         // For other states, only handle fires directly on the path or within 2 tiles
-                        return walkerPath.stream().anyMatch(pathPoint -> 
-                            fire.getWorldArea().contains(pathPoint) || 
-                            fire.getWorldLocation().distanceTo(pathPoint) <= 2);
+                        return walkerPath.stream().anyMatch(pathPoint ->
+                                fire.getWorldArea().contains(pathPoint) ||
+                                        fire.getWorldLocation().distanceTo(pathPoint) <= 2);
                     }
                 })
                 .collect(Collectors.toList());
@@ -1854,7 +1955,7 @@ public class TemporossScript extends Script {
         if (firesInPath.isEmpty()) {
             return true;
         }
-        
+
         // Sort fires by distance to player to handle the closest fires first
         firesInPath.sort((fire1, fire2) -> {
             int dist1 = playerLocation.distanceToPath(fire1.getWorldLocation());
@@ -1871,7 +1972,7 @@ public class TemporossScript extends Script {
             if (Rs2Npc.interact(fire, "Douse")) {
                 log("Dousing fire in path" + (temporossConfig.solo() ? "" : " (mass world mode)"));
                 sleepUntil(Rs2Player::isInteracting, 2000);
-                sleepUntil(() -> !Rs2Player.isInteracting(), 10000);
+                sleepUntil(() -> !Rs2Player.isInteracting(), 1800);
             }
         }
 
