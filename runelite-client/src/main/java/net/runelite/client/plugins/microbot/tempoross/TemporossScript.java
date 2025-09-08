@@ -1492,31 +1492,35 @@ public class TemporossScript extends Script {
 
                 // Handle clouds in INITIAL_FILL state for solo mode
                 if (state == State.INITIAL_FILL && temporossConfig.solo()) {
-                    // Check if clouds/lightning shadows are present and we're not already filling
-                    if (!sortedClouds.isEmpty() && !isFilling) {
-                        log("INITIAL_FILL: Clouds/lightning shadows detected - waiting for them to turn into fire");
+                    // Check if clouds/lightning shadows are present
+                    if (!sortedClouds.isEmpty()) {
+                        if (!isFilling) {
+                            log("INITIAL_FILL: Clouds/lightning shadows detected - waiting for them to turn into fire");
 
-                        // Find the closest cloud to wait next to
-                        GameObject closestCloud = sortedClouds.stream()
-                                .min(Comparator.comparingInt(cloud ->
-                                        Microbot.getClient().getLocalPlayer().getWorldLocation().distanceTo(cloud.getWorldLocation())))
-                                .orElse(null);
+                            // Find the closest cloud to wait next to
+                            GameObject closestCloud = sortedClouds.stream()
+                                    .min(Comparator.comparingInt(cloud ->
+                                            Microbot.getClient().getLocalPlayer().getWorldLocation().distanceTo(cloud.getWorldLocation())))
+                                    .orElse(null);
 
-                        if (closestCloud != null) {
-                            WorldPoint currentPlayerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
-                            int distanceToCloud = currentPlayerLocation.distanceTo(closestCloud.getWorldLocation());
+                            if (closestCloud != null) {
+                                WorldPoint currentPlayerLocation = Microbot.getClient().getLocalPlayer().getWorldLocation();
+                                int distanceToCloud = currentPlayerLocation.distanceTo(closestCloud.getWorldLocation());
 
-                            // Stay in place regardless of distance - wait for cloud to turn into fire
-                            log("Already positioned near cloud, waiting for it to turn into fire");
+                                // Stay in place regardless of distance - wait for cloud to turn into fire
+                                log("Already positioned near cloud, waiting for it to turn into fire");
 
-                            // Wait by the cloud instead of filling ammo crate
-                            return;
+                                // Wait by the cloud instead of filling ammo crate - but only when NOT filling
+                                return;
+                            }
+                        } else {
+                            log("INITIAL_FILL: Clouds detected but already filling - will switch to safe ammo crate");
+                            // Continue to ammo crate switching logic - DO NOT return here
                         }
-                    } else if (!sortedClouds.isEmpty() && isFilling) {
-                        log("INITIAL_FILL: Clouds detected but already filling - continuing with ammo crate interaction");
+                    } else {
+                        // If no clouds present, continue with normal filling logic
+                        log("INITIAL_FILL: No clouds detected - proceeding with ammo crate filling");
                     }
-                    // If no clouds present, continue with normal filling logic
-                    log("INITIAL_FILL: No clouds detected - proceeding with ammo crate filling");
                 } else if (inCloud(Microbot.getClient().getLocalPlayer().getWorldLocation(),5) && !isFilling) {
                     // For other states or mass world mode, always avoid cloud
                     GameObject cloud = sortedClouds.stream()
