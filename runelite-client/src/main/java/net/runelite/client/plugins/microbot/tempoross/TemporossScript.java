@@ -792,10 +792,10 @@ public class TemporossScript extends Script {
         
         for (Rs2NpcModel fire : prioritizedFires) {
 
-            // Special handling for INITIAL_FILL and EMERGENCY_FILL states - don't skip fires even when filling
-            // This fixes the issue where the bot dodges fire but then runs through it
-            if (isFilling && state != State.INITIAL_FILL && state != State.EMERGENCY_FILL) {
-                log("Filling (not in INITIAL_FILL or EMERGENCY_FILL), skipping fire");
+            // Special handling for INITIAL_FILL/EMERGENCY_FILL and THIRD_CATCH states - don't skip fires in these states
+            // This fixes the issue where the bot dodges fire but then runs through it,also prevents it from ignoring fire at THIRD_CATCH
+            if (isFilling && state != State.INITIAL_FILL && state != State.EMERGENCY_FILL && state != State.THIRD_CATCH) {
+                log("Filling (not in INITIAL_FILL/EMERGENCY_FILL or THIRD_CATCH), skipping fire");
                 return;
             }
             
