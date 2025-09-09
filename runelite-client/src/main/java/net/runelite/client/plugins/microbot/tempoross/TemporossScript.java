@@ -425,12 +425,11 @@ public class TemporossScript extends Script {
                 }},10000,300);
 
 
-            return;
         }
 
         // 3) Fill Buckets
         int fullBucketCount = Rs2Inventory.count(ItemID.BUCKET_WATER);
-        if (fullBucketCount <= 1)
+        if (fullBucketCount < temporossConfig.buckets())
         {
             TileObject pumpObj = workArea.getPump();
             TileObject dockPumpObj = workArea.getDockPump();
@@ -548,7 +547,7 @@ public class TemporossScript extends Script {
         int emptyBucketCount = Rs2Inventory.count(ItemID.BUCKET_EMPTY);
         // If we are east of the ladder, interact with it to get on the boat
         if (!isOnStartingBoat()) {
-            if (Rs2GameObject.interact(startingLadder, ((emptyBucketCount > 0 && temporossConfig.solo()) || !temporossConfig.solo()) ? "Climb" : "Solo-start")) {
+            if (Rs2GameObject.interact(startingLadder, temporossConfig.solo() ? "Solo-start" : "Climb")) {
                 BreakHandlerScript.setLockState(true);
                 sleepUntil(() -> (isOnStartingBoat() || isInMinigame()), 15000);
                 return;
@@ -773,7 +772,7 @@ public class TemporossScript extends Script {
                 playerLocation.distanceTo(fire.getWorldLocation()) <= 7);
             
             if (nearbyFire) {
-                log("Solo mode: Energy (" + ENERGY + "%) and essence (" + ESSENCE + "%) are low, but fire within 5 tiles detected - forcing fire handling");
+                log("Solo mode: Energy (" + ENERGY + "%) and essence (" + ESSENCE + "%) are low, but fire within 7 tiles detected - forcing fire handling");
             } else {
                 log("Solo mode: Both energy (" + ENERGY + "%) and essence (" + ESSENCE + "%) are low, skipping fire handling");
                 isFightingFire = false;
@@ -798,15 +797,15 @@ public class TemporossScript extends Script {
                 log("Filling (not in INITIAL_FILL/EMERGENCY_FILL or THIRD_CATCH), skipping fire");
                 return;
             }
-            
+
             // For INITIAL_FILL state, skip fire handling when filling to avoid interrupting the process
             if (state == State.INITIAL_FILL) {
-                // In solo mode with fish in inventory (less than 9), prioritize filling first
-                // But still handle critical nearby fires to prevent getting stuck
-                if (temporossConfig.solo() && State.getCookedFish() < 10 && State.getCookedFish() > 0) {
+                // In solo mode with fish in inventory (10 or less), prioritize filling first
+                // But still handle critical nearby fires
+                if (temporossConfig.solo() && State.getCookedFish() <= 10 && State.getCookedFish() > 0) {
                     int distanceToFire = playerLocation.distanceTo(fire.getWorldLocation());
-                    // Only handle fires that are very close (within 2 tiles) to prevent getting stuck
-                    if (distanceToFire <= 2) {
+                    // Only handle fires that are very close (within 1 tile)
+                    if (distanceToFire <= 1) {
                         log("INITIAL_FILL state: Handling critical nearby fire at distance " + distanceToFire + " (harpoonfish count: " + State.getCookedFish() + ")");
                         if (Rs2Npc.interact(fire, "Douse")) {
                             sleepUntil(() -> !Rs2Player.isInteracting(), 1300);
@@ -851,6 +850,13 @@ public class TemporossScript extends Script {
                 sleepUntil(() -> !Rs2Player.isInteracting(), 1500);
                 return;
             }
+        }
+        
+        // Fix for INITIAL_FILL stuck issue: Reset isFightingFire when no fires were actually processed
+        // This ensures the bot can continue with INITIAL_FILL activities after skipping distant fires, was stuck on idle till wave came
+        if (state == State.INITIAL_FILL && temporossConfig.solo()) {
+            isFightingFire = false;
+            log("INITIAL_FILL state: No fires processed, resuming filling activities");
         }
     }
 
@@ -1069,26 +1075,54 @@ public class TemporossScript extends Script {
      * @return true if a repair was handled, false otherwise
      */
     public boolean checkAndHandleDamagedStructures() {
+        // PRIORITY SAFETY CHECK: Don't attempt repairs if player is in a cloud
+        WorldPoint playerLocation = Rs2Player.getWorldLocation();
+        if (inCloud(playerLocation, 0)) {
+            log("Player is in lightning cloud - skipping structure repairs for safety");
+            return false; // Don't attempt repairs while in cloud
+        }
+
         // Check for damaged mast
         TileObject damagedMast = workArea.getBrokenMast();
         if (damagedMast != null) {
+            // SAFETY CHECK: Don't repair if lightning cloud is at mast location
+            WorldPoint mastLocation = damagedMast.getWorldLocation();
+            if (inCloud(mastLocation, 1)) {
+                log("Lightning cloud detected at mast location - skipping mast repair for safety");
+                return false; // Don't attempt repair if cloud is at mast
+            }
+
+            // FIRE NPC CHECK: Don't repair if fire NPC is present at mast location - douse first
+            Rs2NpcModel nearbyFire = sortedFires.stream()
+                    .filter(fire -> mastLocation.distanceTo(fire.getWorldLocation()) <= 2) // Fire within 2 tiles of mast
+                    .findFirst()
+                    .orElse(null);
+
+            if (nearbyFire != null) {
+                log("PRIORITY: Fire NPC detected at mast location - dousing fire before attempting repair");
+                if (Rs2Npc.interact(nearbyFire, "Douse")) {
+                    log("Dousing fire near mast before repair in checkAndHandleDamagedStructures");
+                    sleepUntil(() -> !Rs2Player.isInteracting(), 1500);
+                    return true; // Return true as we handled the fire , repair will be attempted next cycle
+                }
+            }
+
             // Check if within range and have hammer if needed
-            if (Microbot.getClient().getLocalPlayer().getWorldLocation().distanceTo(damagedMast.getWorldLocation()) <= 6
+            if (Microbot.getClient().getLocalPlayer().getWorldLocation().distanceTo(mastLocation) <= 6
                     && (!temporossConfig.hammer() || temporossConfig.imcandoHammerOffHand() || Rs2Inventory.contains("Hammer"))) {
-                
+
                 log("PRIORITY: Damaged mast detected - dropping current activity to repair");
-                
+
                 // Store current state to return to
                 State previousState = state;
-                
+
                 // Call the existing repair method
                 handleDamagedMast();
-                
+
                 // Restore previous state if it was changed
                 if (state != previousState) {
                     state = previousState;
                 }
-                
                 return true;
             }
         }
@@ -1598,10 +1632,10 @@ public class TemporossScript extends Script {
 
                     // If we found safe ammo crates, use only those
                     if (!safeAmmoCrates.isEmpty()) {
-                        log("Using ammo crate without fire/cloud above it");
+                        log("Using ammo crate without cloud above it");
                         ammoCrates = safeAmmoCrates;
                     } else {
-                        log("All ammo crates have fire/cloud above them, using closest one");
+                        log("All ammo crates have cloud above them, using closest one");
                     }
                 }
 

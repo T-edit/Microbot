@@ -106,20 +106,8 @@ public class TemporossWorkArea
 }
 
     public TileObject getBrokenMast() {
-        // First check if we have a cached broken mast
-        if (TemporossScript.cachedBrokenMast != null) {
-            return TemporossScript.cachedBrokenMast;
-        }
-        
-        // Fallback to the original method if cache is empty
-        TileObject mast = Rs2GameObject.findGameObjectByLocation(mastPoint);
-        if (mast != null && (mast.getId() == ObjectID.TEMPOROSS_MAST_BOTTOM_WEST_BROKEN || mast.getId() == ObjectID.TEMPOROSS_MAST_BOTTOM_EAST_BROKEN)) {
-            // Update the cache
-            TemporossScript.cachedBrokenMast = mast;
-            return mast;
-        }
-
-        return null;
+        // Use the centralized cache that's already being maintained
+        return TemporossScript.cachedBrokenMast;
     }
 
     public TileObject getTotem() {
@@ -132,20 +120,8 @@ public class TemporossWorkArea
 }
 
     public TileObject getBrokenTotem() {
-        // First check if we have a cached broken totem
-        if (TemporossScript.cachedBrokenTotem != null) {
-            return TemporossScript.cachedBrokenTotem;
-        }
-        
-        // Fallback to the original method if cache is empty
-        TileObject totem = Rs2GameObject.findGameObjectByLocation(totemPoint);
-        if (totem != null && (totem.getId() == ObjectID.TEMPOROSS_TOTEM_NORTH_BROKEN || totem.getId() == ObjectID.TEMPOROSS_TOTEM_SOUTH_BROKEN)) {
-            // Update the cache
-            TemporossScript.cachedBrokenTotem = totem;
-            return totem;
-        }
-
-        return null;
+        // Use the centralized cache that's already being maintained
+        return TemporossScript.cachedBrokenTotem;
     }
 
     public TileObject getRange()
